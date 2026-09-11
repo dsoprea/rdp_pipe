@@ -9,6 +9,7 @@ import traceback
 
 import PyQt6.QtCore
 
+import rdp_client.pointer_update
 import rdp_client.rdp_session_core
 import rdp_client.trust_store
 
@@ -26,6 +27,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
     """Runs RdpAsyncSession on a background Qt thread."""
 
     video_frame_ready = PyQt6.QtCore.pyqtSignal(object)
+    pointer_update_ready = PyQt6.QtCore.pyqtSignal(object)
     connection_terminated = PyQt6.QtCore.pyqtSignal()
     resolution_changed = PyQt6.QtCore.pyqtSignal(int, int)
     display_caps_unavailable = PyQt6.QtCore.pyqtSignal()
@@ -100,6 +102,14 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
         self.video_frame_ready.emit(qt_video_frame)
 
+    def _emit_pointer_update(self, pointer_update: rdp_client.pointer_update.RdpPointerUpdate):
+        """Bridge server pointer updates to the Qt signal."""
+
+        if self._gui_stopped_event.is_set():
+            return
+
+        self.pointer_update_ready.emit(pointer_update)
+
     def _emit_resolution_changed(self, width: int, height: int):
         """Bridge resolution changes to the Qt signal."""
 
@@ -125,10 +135,12 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
                 activity_stamp_filepath=self._activity_stamp_filepath)
 
             self._session.add_video_frame_callback(self._emit_video_frame)
+            self._session.add_pointer_update_callback(self._emit_pointer_update)
             self._session.add_resolution_changed_callback(self._emit_resolution_changed)
             self._session.set_progress_callback(self._emit_connection_progress)
 
             await self._session.connect()
+            await self._session.drain_queued_pointer_updates()
 
             if self._session.display_caps_unavailable:
                 self.display_caps_unavailable.emit()

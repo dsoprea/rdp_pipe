@@ -10,6 +10,7 @@ import PIL.Image
 
 import rdp_client.activity_stamp
 import rdp_client.connection_progress
+import rdp_client.pointer_update
 import rdp_client.rdp_connection
 import rdp_client.rdp_input
 
@@ -63,6 +64,7 @@ class RdpAsyncSession:
         self._display_caps_unavailable = False
         self._resolution_changed_callbacks = []
         self._video_frame_callbacks = []
+        self._pointer_update_callbacks = []
         self._progress_callback = None
 
     @property
@@ -114,6 +116,11 @@ class RdpAsyncSession:
         """Register callback(RdpVideoFrame) for each VIDEO rectangle."""
 
         self._video_frame_callbacks.append(callback)
+
+    def add_pointer_update_callback(self, callback):
+        """Register callback(RdpPointerUpdate) for each server pointer update."""
+
+        self._pointer_update_callbacks.append(callback)
 
     def set_progress_callback(self, callback):
         """Register callback(step_identifier) for connection progress updates."""
@@ -198,6 +205,33 @@ class RdpAsyncSession:
         for callback in self._resolution_changed_callbacks:
             callback(width, height)
 
+    def _dispatch_pointer_update(self, pointer_update: rdp_client.pointer_update.RdpPointerUpdate):
+        """Deliver pointer updates without waiting behind video queue items."""
+
+        for callback in self._pointer_update_callbacks:
+            callback(pointer_update)
+
+    async def drain_queued_pointer_updates(self):
+        """Apply pointer updates queued during connect before the video drain loop."""
+
+        pending_video_items = []
+
+        while True:
+            try:
+                output_item = self._connection.ext_out_queue.get_nowait()
+
+            except asyncio.QueueEmpty:
+                break
+
+            if isinstance(output_item, rdp_client.pointer_update.RdpPointerUpdate):
+                self._dispatch_pointer_update(output_item)
+
+            else:
+                pending_video_items.append(output_item)
+
+        for video_item in pending_video_items:
+            await self._connection.ext_out_queue.put(video_item)
+
     async def run_until_stopped(self):
         """Drain ext_out_queue until stop() or disconnect."""
 
@@ -206,7 +240,10 @@ class RdpAsyncSession:
             if output_item is None:
                 return
 
-            if output_item.type == aardwolf.commons.queuedata.RDPDATATYPE.VIDEO:
+            if isinstance(output_item, rdp_client.pointer_update.RdpPointerUpdate):
+                self._dispatch_pointer_update(output_item)
+
+            elif output_item.type == aardwolf.commons.queuedata.RDPDATATYPE.VIDEO:
                 if self._activity_stamp_filepath is not None:
                     rdp_client.activity_stamp.touch_activity_stamp_file(
                         self._activity_stamp_filepath)

@@ -11,10 +11,15 @@ import aardwolf.extensions.RDPEDYC.protocol
 import aardwolf.extensions.RDPEDYC.protocol.create
 import aardwolf.protocol.T124.userdata.clientcoredata
 import aardwolf.protocol.T124.userdata.constants
+import aardwolf.protocol.pdu.capabilities.input
+import aardwolf.protocol.pdu.capabilities.largepointer
+import aardwolf.protocol.pdu.capabilities.pointer
 import PIL.Image
 
 import rdp_client.connection_progress
 import rdp_client.display_control
+import rdp_client.pointer_debug
+import rdp_client.pointer_update
 import rdp_client.trust_store
 
 
@@ -23,6 +28,8 @@ _LOGGER = logging.getLogger(__name__)
 _CONNECTING_DESKTOP_CONNECTION = None
 _ORIGINAL_TS_UD_CS_CORE_TO_BYTES = \
     aardwolf.protocol.T124.userdata.clientcoredata.TS_UD_CS_CORE.to_bytes
+_ORIGINAL_POINTER_CAPABILITYSET_INIT = \
+    aardwolf.protocol.pdu.capabilities.pointer.TS_POINTER_CAPABILITYSET.__init__
 
 
 def _patched_ts_ud_cs_core_to_bytes(self):
@@ -48,6 +55,86 @@ def _patched_ts_ud_cs_core_to_bytes(self):
 
 aardwolf.protocol.T124.userdata.clientcoredata.TS_UD_CS_CORE.to_bytes = \
     _patched_ts_ud_cs_core_to_bytes
+
+
+def _patched_pointer_capabilityset_init(self):
+    """Advertise color pointer support during capability exchange."""
+
+    _ORIGINAL_POINTER_CAPABILITYSET_INIT(self)
+    self.colorPointerFlag = True
+    self.colorPointerCacheSize = 25
+    self.pointerCacheSize = 25
+
+
+aardwolf.protocol.pdu.capabilities.pointer.TS_POINTER_CAPABILITYSET.__init__ = \
+    _patched_pointer_capabilityset_init
+
+_ORIGINAL_HANDLE_OUT_DATA = aardwolf.connection.RDPConnection.handle_out_data
+
+
+def _augment_client_confirm_active_capabilities(confirm_active_pdu):
+    """Add pointer/input capabilities mstsc sends but aardwolf omits."""
+
+    import aardwolf.protocol.pdu.capabilities
+    import aardwolf.protocol.T128.clientconfirmactivepdu
+
+    if not isinstance(confirm_active_pdu, aardwolf.protocol.T128.clientconfirmactivepdu.TS_CONFIRM_ACTIVE_PDU):
+        return
+
+    pointer_capability_present = False
+
+    for capability_set in confirm_active_pdu.capabilitySets:
+        if capability_set.capabilitySetType == aardwolf.protocol.pdu.capabilities.CAPSTYPE.POINTER:
+            pointer_capability_present = True
+
+        if capability_set.capabilitySetType == aardwolf.protocol.pdu.capabilities.CAPSTYPE.INPUT:
+            input_capability = capability_set.capability
+            input_capability.inputFlags = (
+                input_capability.inputFlags
+                | aardwolf.protocol.pdu.capabilities.input.INPUT_FLAG.UNICODE
+                | aardwolf.protocol.pdu.capabilities.input.INPUT_FLAG.MOUSE_HWHEEL)
+
+    if pointer_capability_present:
+        large_pointer_capability_present = False
+
+        for capability_set in confirm_active_pdu.capabilitySets:
+            if capability_set.capabilitySetType == \
+                    aardwolf.protocol.pdu.capabilities.CAPSTYPE.LARGE_POINTER:
+                large_pointer_capability_present = True
+
+        if large_pointer_capability_present is False:
+            large_pointer_capability = \
+                aardwolf.protocol.pdu.capabilities.largepointer.TS_LARGE_POINTER_CAPABILITYSET()
+            large_pointer_capability.largePointerSupportFlags = \
+                aardwolf.protocol.pdu.capabilities.largepointer.LARGE_POINTER.FLAG_96x96
+
+            confirm_active_pdu.capabilitySets.append(
+                aardwolf.protocol.pdu.capabilities.TS_CAPS_SET.from_capability(
+                    large_pointer_capability))
+
+
+async def _patched_handle_out_data(
+        self,
+        dataobj,
+        sec_hdr,
+        datacontrol_hdr,
+        sharecontrol_hdr,
+        channel_id,
+        is_fastpath):
+
+    _augment_client_confirm_active_capabilities(dataobj)
+
+    return await _ORIGINAL_HANDLE_OUT_DATA(
+        self,
+        dataobj,
+        sec_hdr,
+        datacontrol_hdr,
+        sharecontrol_hdr,
+        channel_id,
+        is_fastpath)
+
+
+aardwolf.connection.RDPConnection.handle_out_data = _patched_handle_out_data
 
 
 class RdpEdycChannel(aardwolf.extensions.RDPEDYC.channel.RDPEDYCChannel):
@@ -135,6 +222,14 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
         self.resolution_changed_listeners = []
         self.display_control_channel: rdp_client.display_control.DisplayControlChannel | None = None
         self.progress_callback = None
+        self._pointer_cache = rdp_client.pointer_update.RdpPointerCache()
+        self._pointer_update_listener = None
+        self._pointer_pdu_count_by_update_code: dict[int, int] = {}
+
+    def set_pointer_update_listener(self, listener):
+        """Register a callback invoked immediately for each pointer PDU."""
+
+        self._pointer_update_listener = listener
 
     def add_resolution_changed_listener(self, listener):
         """Register listener(width, height) called after the desktop buffer is resized."""
@@ -506,10 +601,19 @@ def build_iosettings_with_display_control(
     iosettings.video_width = video_width
     iosettings.video_height = video_height
     iosettings.video_bpp_max = color_depth
-    iosettings.video_bpp_min = color_depth
+
+    # aardwolf maps only 4/8/15/16/24 into TS_UD_CS_CORE.colorDepth; 32-bpp sessions
+    # use 24 on the wire plus WANT_32BPP_SESSION from _patched_ts_ud_cs_core_to_bytes.
+    wire_color_depth = color_depth
+    if color_depth == 32:
+        wire_color_depth = 24
+
+    iosettings.video_bpp_min = wire_color_depth
     iosettings.performance_flags = (
         iosettings.performance_flags
-        & ~aardwolf.protocol.T125.extendedinfopacket.PERF.DISABLE_WALLPAPER)
+        & ~aardwolf.protocol.T125.extendedinfopacket.PERF.DISABLE_WALLPAPER
+        & ~aardwolf.protocol.T125.extendedinfopacket.PERF.DISABLE_CURSORSETTINGS
+        | aardwolf.protocol.T125.extendedinfopacket.PERF.DISABLE_CURSOR_SHADOW)
 
     display_channel = rdp_client.display_control.DisplayControlChannel(
         resolution_request_callback=resolution_request_callback)
@@ -520,8 +624,74 @@ def build_iosettings_with_display_control(
     return iosettings, display_channel
 
 
+async def _process_pointer_fastpath_update(
+        connection: RdpDesktopConnection,
+        fastpath_update) -> rdp_client.pointer_update.RdpPointerUpdate | None:
+    """Translate a fast-path pointer update PDU into an RdpPointerUpdate."""
+
+    import aardwolf.protocol.fastpath
+
+    update_code = fastpath_update.updateCode
+
+    if update_code == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.PTR_DEFAULT:
+        return rdp_client.pointer_update.RdpPointerUpdate.build_default()
+
+    if update_code == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.PTR_NULL:
+        return rdp_client.pointer_update.RdpPointerUpdate.build_hidden()
+
+    if update_code == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.PTR_POSITION:
+        return None
+
+    if update_code == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.COLOR:
+        color_pointer_attribute = fastpath_update.update
+
+        return rdp_client.pointer_update.build_bitmap_pointer_update_from_color_attribute(
+            color_pointer_attribute,
+            24,
+            connection._pointer_cache,
+            fastpath_update.updateData)
+
+    if update_code == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.POINTER:
+        pointer_attribute = fastpath_update.update
+        color_update_data = fastpath_update.updateData
+
+        if color_update_data is not None and len(color_update_data) > 2:
+            color_update_data = color_update_data[2:]
+
+        return rdp_client.pointer_update.build_bitmap_pointer_update_from_color_attribute(
+            pointer_attribute.colorPtrAttr,
+            pointer_attribute.xorBpp,
+            connection._pointer_cache,
+            color_update_data)
+
+    if update_code == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.LARGE_POINTER:
+        large_pointer_attribute = fastpath_update.update
+
+        return rdp_client.pointer_update.build_bitmap_pointer_update_from_large_attribute(
+            large_pointer_attribute,
+            connection._pointer_cache,
+            fastpath_update.updateData)
+
+    if update_code == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.CACHED:
+        cached_pointer_attribute = fastpath_update.update
+        cache_index = cached_pointer_attribute.cachedPointerUpdateData
+        cached_pointer_update = connection._pointer_cache.lookup_bitmap(cache_index)
+
+        if cached_pointer_update is None:
+            _LOGGER.warning(
+                "pointer cache miss for CACHED index {cache_index}".format(
+                    cache_index=cache_index))
+            rdp_client.pointer_debug.write_pointer_debug(
+                "pointer pdu: CACHED cache miss index={cache_index}".format(
+                    cache_index=cache_index))
+
+        return cached_pointer_update
+
+    return None
+
+
 async def _rdp_desktop_process_fastpath(self, fpdu):
-    """Forward fastpath bitmap updates without inferring resolution from tile size."""
+    """Forward fastpath bitmap and pointer updates to the output queue."""
 
     try:
         import aardwolf.protocol.fastpath
@@ -549,9 +719,36 @@ async def _rdp_desktop_process_fastpath(self, fpdu):
 
                 await self.ext_out_queue.put(video_rectangle)
 
+        else:
+            update_code = int(fpdu.fpOutputUpdates.updateCode)
+            pointer_pdu_count = self._pointer_pdu_count_by_update_code.get(update_code, 0)
+            self._pointer_pdu_count_by_update_code[update_code] = pointer_pdu_count + 1
+
+            pointer_update = await _process_pointer_fastpath_update(self, fpdu.fpOutputUpdates)
+
+            if pointer_update is not None:
+                debug_detail = "kind={kind}".format(kind=pointer_update.kind.value)
+
+                if pointer_update.kind == rdp_client.pointer_update.RdpPointerUpdateKind.BITMAP:
+                    debug_detail = (
+                        "kind=bitmap xor_bpp={xor_bpp} cache_index={cache_index} size={width}x{height}".format(
+                            xor_bpp=pointer_update.xor_bits_per_pixel,
+                            cache_index=pointer_update.cache_index,
+                            width=pointer_update.image.width if pointer_update.image is not None else 0,
+                            height=pointer_update.image.height if pointer_update.image is not None else 0))
+
+                rdp_client.pointer_debug.write_pointer_debug(
+                    "pointer pdu: {update_code} {debug_detail}".format(
+                        update_code=fpdu.fpOutputUpdates.updateCode,
+                        debug_detail=debug_detail))
+
+                await self.ext_out_queue.put(pointer_update)
+
     except Exception as error:
         _LOGGER.error(
             "fastpath processing failed: {error}".format(error=error))
+        rdp_client.pointer_debug.write_pointer_debug(
+            "pointer pdu: fastpath error {error}".format(error=error))
 
 
 RdpDesktopConnection._RDPConnection__process_fastpath = _rdp_desktop_process_fastpath

@@ -89,14 +89,28 @@ Commands: `receive_screenshot` (`format` default `png`, `quality` default `9`), 
 
 `--pipe` is optional in GUI mode (automation socket at `/tmp/rdp.sock` alongside the window).
 
+## Monkey-patching
+
+This client patches **aardwolf** at runtime instead of vendoring or forking the library. Patches live in production code under `src/rdp_client/` (not in tests). Each patch replaces a symbol on import; subclass overrides on `RdpDesktopConnection` are normal inheritance and are not listed here.
+
+| Target | Replacement | Why |
+|--------|-------------|-----|
+| `aardwolf.protocol.T124.userdata.clientcoredata.TS_UD_CS_CORE.to_bytes` | `_patched_ts_ud_cs_core_to_bytes` in [`rdp_connection.py`](src/rdp_client/rdp_connection.py) | During desktop connect, advertise `SUPPORT_MONITOR_LAYOUT_PDU` and (when `--color-depth` is 32) `WANT_32BPP_SESSION` / 24-bpp high color in Client Core Data. Active only while `RdpDesktopConnection.connect()` runs (`_CONNECTING_DESKTOP_CONNECTION` gate). |
+| `aardwolf.protocol.pdu.capabilities.pointer.TS_POINTER_CAPABILITYSET.__init__` | `_patched_pointer_capabilityset_init` in [`rdp_connection.py`](src/rdp_client/rdp_connection.py) | Advertise `colorPointerFlag=True` so the server sends color/cached pointer updates for hover cursor shapes. |
+| `RdpDesktopConnection._RDPConnection__process_fastpath` | `_rdp_desktop_process_fastpath` in [`rdp_connection.py`](src/rdp_client/rdp_connection.py) | Stock aardwolf handles fast-path `BITMAP` only. Our handler also forwards bitmap tiles without inferring resolution from tile size, and emits pointer updates (`COLOR`, `POINTER`, `CACHED`, etc.) for remote cursor mirroring. |
+
+When adding or changing a runtime monkey-patch, update this section in the same change set.
+
 ## Test
 
 ```bash
 ./script/test.sh
 ```
 
-Offline unit tests cover URL/password handling, RDPDISP PDU encoding, command socket protocol, and CLI validation.
+Offline unit tests cover URL/password handling, RDPDISP PDU encoding, pointer mask decoding, command socket protocol, and CLI validation.
 
 ## Manual smoke
 
 Connect to an RDP host with NLA enabled. Resize the client window and confirm the remote display resolution tracks when the server supports RDPDISP. Servers without RDPDISP keep a fixed session resolution; the local window may letterbox until disconnect.
+
+To trace remote pointer mirroring (PDU types, apply/skip decisions, forwarded hover coordinates), run with `RDP_POINTER_DEBUG=1` and watch stderr while moving the mouse over window borders and text fields.
