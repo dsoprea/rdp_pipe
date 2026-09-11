@@ -10,18 +10,22 @@ def test_encode_monitor_layout_pdu_header_and_length():
 
     pdu_bytes = rdp_client.display_control.encode_monitor_layout_pdu(1280, 800)
 
-    message_type, monitor_count = struct.unpack("<II", pdu_bytes[0:8])
+    message_type, pdu_length, monitor_layout_size, monitor_count = struct.unpack(
+        "<IIII",
+        pdu_bytes[0:16])
 
     assert message_type == rdp_client.display_control.PDU_TYPE_MONITOR_LAYOUT
+    assert pdu_length == 16 + rdp_client.display_control.MONITOR_LAYOUT_STRUCT_SIZE
+    assert monitor_layout_size == rdp_client.display_control.MONITOR_LAYOUT_STRUCT_SIZE
     assert monitor_count == 1
-    assert len(pdu_bytes) == 8 + rdp_client.display_control.MONITOR_LAYOUT_STRUCT_SIZE
+    assert len(pdu_bytes) == 16 + rdp_client.display_control.MONITOR_LAYOUT_STRUCT_SIZE
 
 
 def test_encode_monitor_layout_pdu_even_width():
     """Width is forced even per MS-RDPEDISP."""
 
     pdu_bytes = rdp_client.display_control.encode_monitor_layout_pdu(1281, 800)
-    layout_bytes = pdu_bytes[8:]
+    layout_bytes = pdu_bytes[16:]
 
     flags, left, top, width, height = struct.unpack("<iiiii", layout_bytes[0:20])
 
@@ -36,8 +40,9 @@ def test_decode_caps_pdu_round_trip_fields():
     """Caps PDU decoder reads monitor limits and area factors."""
 
     caps_bytes = struct.pack(
-        "<IIII",
+        "<IIIII",
         rdp_client.display_control.PDU_TYPE_CAPS,
+        20,
         16,
         8192,
         8192)

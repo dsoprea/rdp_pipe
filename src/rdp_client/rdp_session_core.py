@@ -127,6 +127,9 @@ class RdpAsyncSession:
         self._connection = connection_factory.get_connection(self._iosettings)
         self._connection.display_control_channel = self._display_control_channel
 
+        self._display_control_channel.set_resolution_request_callback(
+            self._reallocate_desktop_buffer_for_resolution_request)
+
         self._connection.add_resolution_changed_listener(self._notify_resolution_changed)
 
         connect_ok, connect_error = await self._connection.connect()
@@ -135,6 +138,8 @@ class RdpAsyncSession:
 
         if connect_ok is None:
             raise RdpSessionError("RDP connection failed without an error detail")
+
+        await self._connection.open_display_control_channel()
 
         caps_available = await self._display_control_channel.wait_for_caps(
             DISPLAY_CONTROL_CAPS_TIMEOUT_SECONDS)
@@ -145,6 +150,14 @@ class RdpAsyncSession:
                 "RDPDISP caps not received; seamless resize disabled for this server")
 
         self._connected_event.set()
+
+    def _reallocate_desktop_buffer_for_resolution_request(self, width: int, height: int):
+        """Resize the desktop buffer when RDPDISP accepts a layout request."""
+
+        if self._connection is None:
+            return
+
+        self._connection.reallocate_desktop_buffer(width, height)
 
     def _notify_resolution_changed(self, width: int, height: int):
         """Invoke resolution callbacks registered by GUI or automation."""

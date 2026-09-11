@@ -100,9 +100,13 @@ def encode_monitor_layout_pdu(width: int, height: int) -> bytes:
     """Encode DISPLAYCONTROL_MONITOR_LAYOUT_PDU for a single primary monitor."""
 
     monitor_layout_bytes = build_monitor_layout_bytes(width, height)
+    pdu_length = 8 + 8 + MONITOR_LAYOUT_STRUCT_SIZE
+
     pdu_bytes = struct.pack(
-        "<II",
+        "<IIII",
         PDU_TYPE_MONITOR_LAYOUT,
+        pdu_length,
+        MONITOR_LAYOUT_STRUCT_SIZE,
         1)
 
     pdu_bytes = pdu_bytes + monitor_layout_bytes
@@ -113,20 +117,25 @@ def encode_monitor_layout_pdu(width: int, height: int) -> bytes:
 def decode_caps_pdu(data: bytes) -> DisplayControlCaps:
     """Decode DISPLAYCONTROL_CAPS_PDU from channel payload bytes."""
 
-    if len(data) < 16:
+    if len(data) < 20:
         raise ValueError(
-            "DISPLAYCONTROL_CAPS_PDU shorter than 16 bytes (length={length})".format(
+            "DISPLAYCONTROL_CAPS_PDU shorter than 20 bytes (length={length})".format(
                 length=len(data)))
 
-    message_type, max_num_monitors, factor_a, factor_b = struct.unpack(
-        "<IIII",
-        data[0:16])
+    message_type, pdu_length = struct.unpack("<II", data[0:8])
 
     if message_type != PDU_TYPE_CAPS:
         raise ValueError(
             "expected DISPLAYCONTROL_CAPS_PDU type {expected}, got {actual}".format(
                 expected=PDU_TYPE_CAPS,
                 actual=message_type))
+
+    if pdu_length < 20:
+        raise ValueError(
+            "DISPLAYCONTROL_CAPS_PDU length field too small (length={length})".format(
+                length=pdu_length))
+
+    max_num_monitors, factor_a, factor_b = struct.unpack("<III", data[8:20])
 
     caps = DisplayControlCaps(
         max_num_monitors,
@@ -150,6 +159,11 @@ class DisplayControlChannel(aardwolf.extensions.RDPEDYC.vchannels.VirtualChannel
         self._caps_received_event = asyncio.Event()
         self._resolution_request_callback = resolution_request_callback
         self._caps_missing_logged = False
+
+    def set_resolution_request_callback(self, resolution_request_callback):
+        """Attach callback(width, height) invoked after a layout PDU is sent."""
+
+        self._resolution_request_callback = resolution_request_callback
 
     @property
     def caps_received(self) -> bool:

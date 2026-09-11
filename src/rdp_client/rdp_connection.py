@@ -6,6 +6,9 @@ import logging
 
 import aardwolf.commons.factory
 import aardwolf.connection
+import aardwolf.extensions.RDPEDYC.channel
+import aardwolf.extensions.RDPEDYC.protocol
+import aardwolf.extensions.RDPEDYC.protocol.create
 import aardwolf.protocol.T124.userdata.clientcoredata
 import aardwolf.protocol.T124.userdata.constants
 import PIL.Image
@@ -44,6 +47,80 @@ aardwolf.protocol.T124.userdata.clientcoredata.TS_UD_CS_CORE.to_bytes = \
     _patched_ts_ud_cs_core_to_bytes
 
 
+class RdpEdycChannel(aardwolf.extensions.RDPEDYC.channel.RDPEDYCChannel):
+    """Dynamic virtual channel manager with client-initiated channel open."""
+
+    def __init__(self, iosettings):
+        """Track pending client channel create requests."""
+
+        aardwolf.extensions.RDPEDYC.channel.RDPEDYCChannel.__init__(self, iosettings)
+
+        self._next_client_channel_id = 1000
+        self._pending_client_channel_names_by_id: dict[int, str] = {}
+
+    async def open_virtual_channel(self, channel_name: str) -> bool:
+        """Send a DYNVC create request for a registered virtual channel."""
+
+        if channel_name not in self.defined_channels:
+            return False
+
+        virtual_channel = self.defined_channels[channel_name]
+
+        if virtual_channel.channel_id is not None:
+            return True
+
+        create_request = aardwolf.extensions.RDPEDYC.protocol.create.DYNVC_CREATE_REQ()
+        create_request.ChannelId = self._next_client_channel_id
+        create_request.ChannelName = channel_name
+
+        self._pending_client_channel_names_by_id[create_request.ChannelId] = channel_name
+        self._next_client_channel_id = self._next_client_channel_id + 1
+
+        await self.fragment_and_send(create_request.to_bytes())
+
+        return True
+
+    async def process_channel_data(self, data):
+        """Handle server create requests and create responses to client opens."""
+
+        import aardwolf.protocol.channelpdu
+
+        channel_data = aardwolf.protocol.channelpdu.CHANNEL_PDU_HEADER.from_bytes(data)
+        message = aardwolf.extensions.RDPEDYC.protocol.DYNVC_MESSAGE.from_bytes(channel_data.data)
+
+        if message.cmd == aardwolf.extensions.RDPEDYC.protocol.DYNVC_CMD.CREATE_RSP:
+            create_response = \
+                aardwolf.extensions.RDPEDYC.protocol.create.DYNVC_CREATE_RSP.from_bytes(
+                    channel_data.data)
+
+            pending_channel_name = \
+                self._pending_client_channel_names_by_id.get(create_response.ChannelId)
+
+            if pending_channel_name is not None:
+                if create_response.CreationStatus != 0:
+                    del self._pending_client_channel_names_by_id[create_response.ChannelId]
+
+                    return
+
+                virtual_channel = self.defined_channels[pending_channel_name]
+                del self._pending_client_channel_names_by_id[create_response.ChannelId]
+
+                _, init_error = await virtual_channel.channel_init_internal(
+                    create_response.ChannelId,
+                    self)
+
+                if init_error is not None:
+                    return
+
+                self.channels[create_response.ChannelId] = virtual_channel
+
+                return
+
+        await aardwolf.extensions.RDPEDYC.channel.RDPEDYCChannel.process_channel_data(
+            self,
+            data)
+
+
 class RdpDesktopConnection(aardwolf.connection.RDPConnection):
     """Desktop RDP session with monitor-layout support and explicit buffer resize."""
 
@@ -75,6 +152,28 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
 
         for listener in self.resolution_changed_listeners:
             listener(width, height)
+
+    async def open_display_control_channel(self) -> bool:
+        """Open RDPDISP when the server has not already created the channel."""
+
+        if self.display_control_channel is None:
+            return False
+
+        if self.display_control_channel.channel_id is not None:
+            return True
+
+        dynamic_channel = self._RDPConnection__joined_channels.get("drdynvc")
+
+        if dynamic_channel is None:
+            return False
+
+        open_virtual_channel = getattr(dynamic_channel, "open_virtual_channel", None)
+
+        if open_virtual_channel is None:
+            return False
+
+        return await open_virtual_channel(
+            rdp_client.display_control.DISPLAY_CONTROL_CHANNEL_NAME)
 
     async def connect(self):
         """Connect while capability-flag patching is active for Client Core Data."""
@@ -373,8 +472,13 @@ def build_iosettings_with_display_control(
     """Create iosettings with RDPDISP channel registration and 32 bpp video."""
 
     import aardwolf.commons.iosettings
+    import aardwolf.extensions.RDPECLIP.channel
 
     iosettings = aardwolf.commons.iosettings.RDPIOSettings()
+    iosettings.channels = [
+        aardwolf.extensions.RDPECLIP.channel.RDPECLIPChannel,
+        RdpEdycChannel,
+    ]
     iosettings.video_width = video_width
     iosettings.video_height = video_height
     iosettings.video_bpp_max = 32
@@ -390,7 +494,7 @@ def build_iosettings_with_display_control(
 
 
 async def _rdp_desktop_process_fastpath(self, fpdu):
-    """Reallocate the desktop buffer when a full-screen bitmap changes geometry."""
+    """Forward fastpath bitmap updates without inferring resolution from tile size."""
 
     try:
         import aardwolf.protocol.fastpath
@@ -400,17 +504,6 @@ async def _rdp_desktop_process_fastpath(self, fpdu):
                 aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.BITMAP:
 
             for bitmapdata in fpdu.fpOutputUpdates.update.rectangles:
-                bitmap_width = bitmapdata.destRight - bitmapdata.destLeft + 1
-                bitmap_height = bitmapdata.destBottom - bitmapdata.destTop + 1
-
-                if bitmapdata.destLeft == 0 \
-                        and bitmapdata.destTop == 0 \
-                        and (
-                            bitmap_width != self.iosettings.video_width
-                            or bitmap_height != self.iosettings.video_height):
-
-                    self.reallocate_desktop_buffer(bitmap_width, bitmap_height)
-
                 self.desktop_buffer_has_data = True
 
                 video_rectangle, image = \

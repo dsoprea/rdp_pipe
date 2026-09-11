@@ -355,8 +355,6 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
     def _handle_video_frame(self, video_frame: rdp_client.rdp_session_thread.RdpVideoFrame):
         """Blit a partial rectangle into the local QImage buffer."""
 
-        patch_image = PIL.ImageQt.ImageQt(video_frame.image)
-
         session = self._worker.get_session()
         video_width = self._video_width
         video_height = self._video_height
@@ -365,20 +363,26 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             video_width = session.iosettings.video_width
             video_height = session.iosettings.video_height
 
-        if video_frame.width == video_width \
-                and video_frame.height == video_height:
-            self._frame_buffer = patch_image
-        else:
-            painter = PyQt6.QtGui.QPainter(self._frame_buffer)
-            painter.drawImage(
-                video_frame.x_position,
-                video_frame.y_position,
-                patch_image,
-                0,
-                0,
-                video_frame.width,
-                video_frame.height)
-            painter.end()
+        if self._frame_buffer.width() != video_width \
+                or self._frame_buffer.height() != video_height:
+
+            self._frame_buffer = PyQt6.QtGui.QImage(
+                video_width,
+                video_height,
+                PyQt6.QtGui.QImage.Format.Format_RGB32)
+
+        patch_image = PIL.ImageQt.ImageQt(video_frame.image)
+
+        painter = PyQt6.QtGui.QPainter(self._frame_buffer)
+        painter.drawImage(
+            video_frame.x_position,
+            video_frame.y_position,
+            patch_image,
+            0,
+            0,
+            video_frame.width,
+            video_frame.height)
+        painter.end()
 
         pixmap = PyQt6.QtGui.QPixmap.fromImage(self._frame_buffer)
         self._canvas.setPixmap(pixmap)
