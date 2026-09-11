@@ -7,6 +7,7 @@
 - Exits non-zero with a clear stderr message when password resolution fails
 - `--headless`: console-only mode (no PyQt6 window); requires `--pipe`
 - `--pipe`: Unix domain socket for JSON-line automation at `/tmp/rdp.sock` (optional in GUI mode, mandatory with `--headless`)
+- `--activity-stamp-filepath PATH`: touch `PATH` on each remote framebuffer update (for external watchdogs / idle detection)
 
 ## Command socket (automation)
 

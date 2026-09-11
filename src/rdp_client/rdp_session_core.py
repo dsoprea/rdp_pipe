@@ -8,6 +8,7 @@ import aardwolf.commons.queuedata
 import aardwolf.commons.queuedata.constants
 import PIL.Image
 
+import rdp_client.activity_stamp
 import rdp_client.connection_progress
 import rdp_client.rdp_connection
 import rdp_client.rdp_input
@@ -43,13 +44,15 @@ class RdpAsyncSession:
             self,
             connection_url: str,
             video_width: int,
-            video_height: int):
+            video_height: int,
+            activity_stamp_filepath: str | None = None):
 
         """Prepare session state; call connect and run_until_stopped."""
 
         self._connection_url = connection_url
         self._video_width = video_width
         self._video_height = video_height
+        self._activity_stamp_filepath = activity_stamp_filepath
         self._iosettings = None
         self._display_control_channel = None
         self._connection = None
@@ -201,6 +204,10 @@ class RdpAsyncSession:
                 return
 
             if output_item.type == aardwolf.commons.queuedata.RDPDATATYPE.VIDEO:
+                if self._activity_stamp_filepath is not None:
+                    rdp_client.activity_stamp.touch_activity_stamp_file(
+                        self._activity_stamp_filepath)
+
                 video_frame = RdpVideoFrame(
                     output_item.x,
                     output_item.y,

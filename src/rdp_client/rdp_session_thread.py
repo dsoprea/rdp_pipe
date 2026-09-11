@@ -40,6 +40,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
         self._connection_url = None
         self._video_width = None
         self._video_height = None
+        self._activity_stamp_filepath = None
         self._input_queue = None
         self._session: rdp_client.rdp_session_core.RdpAsyncSession | None = None
         self._event_loop = None
@@ -53,13 +54,15 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
             connection_url: str,
             video_width: int,
             video_height: int,
-            input_queue: queue.Queue):
+            input_queue: queue.Queue,
+            activity_stamp_filepath: str | None = None):
 
         """Bind URL, video geometry, and the GUI input queue."""
 
         self._connection_url = connection_url
         self._video_width = video_width
         self._video_height = video_height
+        self._activity_stamp_filepath = activity_stamp_filepath
         self._input_queue = input_queue
 
     def get_session(self) -> rdp_client.rdp_session_core.RdpAsyncSession | None:
@@ -114,7 +117,8 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
             self._session = rdp_client.rdp_session_core.RdpAsyncSession(
                 self._connection_url,
                 self._video_width,
-                self._video_height)
+                self._video_height,
+                activity_stamp_filepath=self._activity_stamp_filepath)
 
             self._session.add_video_frame_callback(self._emit_video_frame)
             self._session.add_resolution_changed_callback(self._emit_resolution_changed)

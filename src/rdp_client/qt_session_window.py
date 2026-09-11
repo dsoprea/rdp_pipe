@@ -502,7 +502,8 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             connection_url: str,
             video_width: int,
             video_height: int,
-            command_socket_path: str | None = None):
+            command_socket_path: str | None = None,
+            activity_stamp_filepath: str | None = None):
 
         """Build UI, iosettings, and the asyncio/Qt bridge."""
 
@@ -539,7 +540,8 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             connection_url,
             video_width,
             video_height,
-            self._input_queue)
+            self._input_queue,
+            activity_stamp_filepath=activity_stamp_filepath)
 
         self._worker_thread = PyQt6.QtCore.QThread()
         self._worker.moveToThread(self._worker_thread)

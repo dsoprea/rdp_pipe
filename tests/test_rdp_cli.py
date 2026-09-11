@@ -35,6 +35,31 @@ def test_headless_with_pipe_parses():
     assert arguments.pipe is True
 
 
+def test_activity_stamp_filepath_parses():
+    """--activity-stamp-filepath is accepted in GUI and headless modes."""
+
+    parser = rdp_client.entrypoint.rdp.build_argument_parser()
+    arguments = parser.parse_args(
+        [
+            "--activity-stamp-filepath",
+            "/tmp/rdp-activity",
+            "10.0.0.5",
+        ])
+
+    assert arguments.activity_stamp_filepath == "/tmp/rdp-activity"
+
+    headless_arguments = parser.parse_args(
+        [
+            "--headless",
+            "--pipe",
+            "--activity-stamp-filepath",
+            "/tmp/rdp-activity",
+            "10.0.0.5",
+        ])
+
+    assert headless_arguments.activity_stamp_filepath == "/tmp/rdp-activity"
+
+
 def test_write_connection_progress_to_stderr_writes_step_label(capsys):
     """Headless progress callback prints operator-facing step labels."""
 

@@ -30,6 +30,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="enable JSON-line automation on {0}".format(DEFAULT_PIPE_FILEPATH))
 
+    parser.add_argument(
+        "--activity-stamp-filepath",
+        dest="activity_stamp_filepath",
+        help="touch this file on each remote framebuffer update")
+
     return parser
 
 
@@ -51,7 +56,10 @@ def write_connection_progress_to_stderr(step_identifier: str):
     sys.stderr.write("{step_label}\n".format(step_label=step_label))
 
 
-def run_gui_session(connection_url: str, command_socket_path: str | None) -> int:
+def run_gui_session(
+        connection_url: str,
+        command_socket_path: str | None,
+        activity_stamp_filepath: str | None) -> int:
     """Launch the PyQt6 desktop client."""
 
     import PyQt6.QtWidgets
@@ -63,7 +71,8 @@ def run_gui_session(connection_url: str, command_socket_path: str | None) -> int
         connection_url,
         DEFAULT_VIDEO_WIDTH,
         DEFAULT_VIDEO_HEIGHT,
-        command_socket_path=command_socket_path)
+        command_socket_path=command_socket_path,
+        activity_stamp_filepath=activity_stamp_filepath)
 
     session_window.show()
 
@@ -72,7 +81,8 @@ def run_gui_session(connection_url: str, command_socket_path: str | None) -> int
 
 async def run_headless_session_async(
         connection_url: str,
-        command_socket_path: str) -> int:
+        command_socket_path: str,
+        activity_stamp_filepath: str | None) -> int:
 
     """Connect headlessly and serve automation commands."""
 
@@ -81,7 +91,8 @@ async def run_headless_session_async(
     session = rdp_client.rdp_session_core.RdpAsyncSession(
         connection_url,
         DEFAULT_VIDEO_WIDTH,
-        DEFAULT_VIDEO_HEIGHT)
+        DEFAULT_VIDEO_HEIGHT,
+        activity_stamp_filepath=activity_stamp_filepath)
 
     session.set_progress_callback(write_connection_progress_to_stderr)
 
@@ -113,11 +124,17 @@ async def run_headless_session_async(
     return 0
 
 
-def run_headless_session(connection_url: str, command_socket_path: str) -> int:
+def run_headless_session(
+        connection_url: str,
+        command_socket_path: str,
+        activity_stamp_filepath: str | None) -> int:
     """Run the headless asyncio session loop."""
 
     return asyncio.run(
-        run_headless_session_async(connection_url, command_socket_path))
+        run_headless_session_async(
+            connection_url,
+            command_socket_path,
+            activity_stamp_filepath))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -146,11 +163,15 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.headless:
         return run_headless_session(
             connection_url,
-            pipe_filepath)
+            pipe_filepath,
+            arguments.activity_stamp_filepath)
 
     sys.stderr.write("connecting...\n")
 
-    return run_gui_session(connection_url, pipe_filepath)
+    return run_gui_session(
+        connection_url,
+        pipe_filepath,
+        arguments.activity_stamp_filepath)
 
 
 if __name__ == "__main__":
