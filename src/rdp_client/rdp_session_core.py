@@ -289,6 +289,41 @@ class RdpAsyncSession:
             "color_depth": self._iosettings.video_bpp_max,
         }
 
+    async def handle_send_geometry(
+            self,
+            width: int | None = None,
+            height: int | None = None) -> dict:
+
+        """Request a remote resolution change via RDPDISP."""
+
+        if width is None and height is None:
+            target_width = self._video_width
+            target_height = self._video_height
+
+        elif width is not None and height is not None:
+            target_width = width
+            target_height = height
+
+        else:
+            raise ValueError(
+                "send_geometry requires both width and height, or neither to reset native resolution")
+
+        layout_accepted = await self._display_control_channel.request_resolution(
+            target_width,
+            target_height)
+
+        if layout_accepted is False:
+            raise RdpSessionError(
+                "RDPDISP display control is not available; cannot change remote resolution")
+
+        applied_width = rdp_client.display_control.clamp_even_display_width(target_width)
+        applied_height = rdp_client.display_control.clamp_display_height(target_height)
+
+        return {
+            "width": applied_width,
+            "height": applied_height,
+        }
+
     async def handle_receive_screenshot(
             self,
             image_format: str = "png",

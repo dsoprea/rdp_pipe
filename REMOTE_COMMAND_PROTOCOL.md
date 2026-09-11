@@ -93,6 +93,50 @@ Return the current remote session dimensions and color depth.
 
 ---
 
+### `send_geometry`
+
+Request a remote desktop resolution change via MS-RDPEDISP (`DISPLAYCONTROL_MONITOR_LAYOUT_PDU`). Requires the server to advertise RDPDISP caps at connect; otherwise the command fails.
+
+**Request**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `command` | yes | `"send_geometry"` |
+| `width` | no* | Target width in pixels |
+| `height` | no* | Target height in pixels |
+
+\* Omit **both** `width` and `height` to reset to the **native** (initial connect) resolution — `1280×800` in headless mode, or the window size passed at session start in GUI mode. Supply **both** to set an explicit size. Supplying only one dimension is an error.
+
+Width is clamped to `200–8192` and forced **even**; height is clamped to `200–8192`.
+
+```json
+{"command":"send_geometry","width":1920,"height":1080}
+```
+
+```json
+{"command":"send_geometry"}
+```
+
+**Result**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `width` | number | Width sent to the server after clamping |
+| `height` | number | Height sent to the server after clamping |
+
+**Errors**
+
+- `send_geometry requires both width and height, or neither to reset native resolution`
+- `RDPDISP display control is not available; cannot change remote resolution`
+
+**Example**
+
+```json
+{"ok":true,"result":{"width":1920,"height":1080}}
+```
+
+---
+
 ### `receive_screenshot`
 
 Capture the current remote framebuffer and return it as base64-encoded image bytes.

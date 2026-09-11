@@ -18,6 +18,7 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 - `receive_screenshot`: remote framebuffer as base64 PNG/JPEG (`format`, `quality`)
 - `send_click`: mouse click at remote coordinates (`x`, `y`, `button`: left/right/middle)
 - `receive_geometry`: `width`, `height`, `color_depth`
+- `send_geometry`: reconfigure remote resolution (`width`, `height`; omit both to reset to native connect resolution)
 - `send_key`: type text (`keys`) or press a named key (`key`, e.g. `Return`, `Escape`)
 - Automation input bypasses pointer-inside-canvas gating used by the GUI
 

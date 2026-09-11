@@ -20,6 +20,7 @@ SUPPORTED_COMMANDS = (
     "receive_screenshot",
     "send_click",
     "receive_geometry",
+    "send_geometry",
     "send_key",
 )
 
@@ -215,6 +216,24 @@ class CommandSocketServer:
 
         if command_name == "receive_geometry":
             return await self._session.handle_receive_geometry()
+
+        if command_name == "send_geometry":
+            width_value = None
+            height_value = None
+
+            try:
+                width_value = int(request_body["width"])
+            except KeyError:
+                pass
+
+            try:
+                height_value = int(request_body["height"])
+            except KeyError:
+                pass
+
+            return await self._session.handle_send_geometry(
+                width_value,
+                height_value)
 
         if command_name == "send_click":
             if "x" not in request_body or "y" not in request_body:
