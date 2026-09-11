@@ -210,6 +210,12 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
         self._gui_stopped_event.set()
 
+        if self._event_loop is not None and self._connection_task is not None:
+            if self._connection_task.done() is False:
+                self._event_loop.call_soon_threadsafe(self._connection_task.cancel)
+
+                return
+
         if self._session is not None and self._event_loop is not None:
             if self._event_loop.is_running():
                 self._stop_future = asyncio.run_coroutine_threadsafe(
@@ -246,6 +252,15 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
         if not self._event_loop.is_running():
             return
 
-        asyncio.run_coroutine_threadsafe(
+        resize_future = asyncio.run_coroutine_threadsafe(
             self._session.request_remote_resolution(width, height),
             self._event_loop)
+        resize_future.add_done_callback(self._log_resize_future_result)
+
+    def _log_resize_future_result(self, resize_future):
+        """Surface RDPDISP failures scheduled from the Qt thread."""
+
+        try:
+            resize_future.result()
+        except Exception:
+            _LOGGER.exception("RDPDISP resize request failed")

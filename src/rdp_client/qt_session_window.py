@@ -19,6 +19,7 @@ import rdp_client.connection_progress
 import rdp_client.connection_url
 import rdp_client.display_control
 import rdp_client.pointer_debug
+import rdp_client.qt_session_mapping
 import rdp_client.pointer_update
 import rdp_client.rdp_session_thread
 
@@ -297,6 +298,7 @@ class RdpSessionContainer(PyQt6.QtWidgets.QWidget):
 
         super().__init__(parent)
 
+        self.setMinimumSize(0, 0)
         self._canvas = RdpCanvas(self)
         self._connecting_overlay = RdpConnectingOverlay(self)
         self._resize_debounce_timer = PyQt6.QtCore.QTimer(self)
@@ -337,9 +339,10 @@ class RdpSessionContainer(PyQt6.QtWidgets.QWidget):
         self.resize_requested.emit(
             self._pending_resize_width,
             self._pending_resize_height)
+        self._canvas.sync_pointer_after_geometry_change()
 
 
-class RdpCanvas(PyQt6.QtWidgets.QLabel):
+class RdpCanvas(PyQt6.QtWidgets.QWidget):
     """Remote desktop canvas with mouse forwarding and pointer-gated keyboard."""
 
     def __init__(self, parent=None):
@@ -347,6 +350,7 @@ class RdpCanvas(PyQt6.QtWidgets.QLabel):
 
         super().__init__(parent)
 
+        self._frame_image: PyQt6.QtGui.QImage | None = None
         self._remote_width = DEFAULT_WINDOW_WIDTH
         self._remote_height = DEFAULT_WINDOW_HEIGHT
         self._pointer_inside_canvas = False
@@ -364,7 +368,6 @@ class RdpCanvas(PyQt6.QtWidgets.QLabel):
         self.setSizePolicy(
             PyQt6.QtWidgets.QSizePolicy.Policy.Ignored,
             PyQt6.QtWidgets.QSizePolicy.Policy.Ignored)
-        self.setScaledContents(False)
         self.setMouseTracking(True)
         self.setFocusPolicy(PyQt6.QtCore.Qt.FocusPolicy.StrongFocus)
 
@@ -409,11 +412,36 @@ class RdpCanvas(PyQt6.QtWidgets.QLabel):
         self._remote_height = height
         self.update()
 
+    def set_frame_image(self, frame_image: PyQt6.QtGui.QImage):
+        """Store the latest remote framebuffer and repaint without QLabel pixmap sizing."""
+
+        self._frame_image = frame_image
+        self.update()
+
+    def paintEvent(self, paint_event: PyQt6.QtGui.QPaintEvent):
+        """Paint the remote framebuffer centered at 1:1 scale."""
+
+        if self._frame_image is None or self._frame_image.isNull():
+            return
+
+        painter = PyQt6.QtGui.QPainter(self)
+        origin = self._letterbox_origin()
+        painter.drawImage(origin, self._frame_image)
+        painter.end()
+
     def reset_remote_pointer_state(self):
         """Clear cached server pointer shapes at session start."""
 
         self._suppress_default_pointer_until = 0.0
         self._bitmap_pointer_update = None
+        self._sync_remote_cursor_display()
+
+    def sync_pointer_after_geometry_change(self):
+        """Re-hit-test the server and repaint the cursor overlay after resize."""
+
+        if self._pointer_inside_canvas and self._last_pointer_widget_position is not None:
+            self._enqueue_hover_at_widget_position(self._last_pointer_widget_position)
+
         self._sync_remote_cursor_display()
 
     def send_session_ready_pointer_hover(self):
@@ -471,24 +499,11 @@ class RdpCanvas(PyQt6.QtWidgets.QLabel):
 
         self._input_queue.put(mouse_message)
 
-    def _remote_framebuffer_size(self) -> tuple[int, int]:
-        """Return the painted pixmap size used for mouse coordinate mapping."""
-
-        pixmap = self.pixmap()
-
-        if pixmap is not None and pixmap.isNull() is False:
-            return pixmap.width(), pixmap.height()
-
-        return self._remote_width, self._remote_height
-
     def _letterbox_origin(self) -> PyQt6.QtCore.QPoint:
         """Return the widget offset of the remote framebuffer's top-left corner."""
 
-        framebuffer_width, framebuffer_height = self._remote_framebuffer_size()
-        widget_width = self.width()
-        widget_height = self.height()
-        origin_x = int((widget_width - framebuffer_width) / 2)
-        origin_y = int((widget_height - framebuffer_height) / 2)
+        origin_x = int((self.width() - self._remote_width) / 2)
+        origin_y = int((self.height() - self._remote_height) / 2)
 
         return PyQt6.QtCore.QPoint(origin_x, origin_y)
 
@@ -497,22 +512,18 @@ class RdpCanvas(PyQt6.QtWidgets.QLabel):
             widget_position: PyQt6.QtCore.QPoint) -> PyQt6.QtCore.QPoint | None:
         """Map widget coordinates to remote desktop coordinates."""
 
-        framebuffer_width, framebuffer_height = self._remote_framebuffer_size()
-        origin = self._letterbox_origin()
-        remote_x = widget_position.x() - origin.x()
-        remote_y = widget_position.y() - origin.y()
+        mapped_position = rdp_client.qt_session_mapping.map_widget_position_to_remote(
+            self.width(),
+            self.height(),
+            self._remote_width,
+            self._remote_height,
+            widget_position.x(),
+            widget_position.y())
 
-        if remote_x < 0 or remote_y < 0:
+        if mapped_position is None:
             return None
 
-        # Clamp bottom/right edge hovers so a 1px overshoot still hits the resize band.
-        if remote_x >= framebuffer_width:
-            remote_x = framebuffer_width - 1
-
-        if remote_y >= framebuffer_height:
-            remote_y = framebuffer_height - 1
-
-        return PyQt6.QtCore.QPoint(remote_x, remote_y)
+        return PyQt6.QtCore.QPoint(mapped_position[0], mapped_position[1])
 
     def _enqueue_mouse_event(
             self,
@@ -544,18 +555,14 @@ class RdpCanvas(PyQt6.QtWidgets.QLabel):
             debug_now = time.monotonic()
             if debug_now - self._last_mouse_pointer_debug_at >= MOUSE_POINTER_DEBUG_INTERVAL_SECONDS:
                 self._last_mouse_pointer_debug_at = debug_now
-                framebuffer_width, framebuffer_height = self._remote_framebuffer_size()
+                framebuffer_width = self._remote_width
+                framebuffer_height = self._remote_height
                 origin = self._letterbox_origin()
-                pixmap = self.pixmap()
-                pixmap_device_pixel_ratio = 0.0
-
-                if pixmap is not None and pixmap.isNull() is False:
-                    pixmap_device_pixel_ratio = pixmap.devicePixelRatio()
 
                 rdp_client.pointer_debug.write_pointer_debug(
                     "mouse hover forwarded remote=({remote_x}, {remote_y}) widget=({widget_width}, {widget_height}) "
                     "framebuffer=({framebuffer_width}, {framebuffer_height}) origin=({origin_x}, {origin_y}) "
-                    "pixmap_dpr={pixmap_device_pixel_ratio} canvas_dpr={canvas_device_pixel_ratio}".format(
+                    "canvas_dpr={canvas_device_pixel_ratio}".format(
                         remote_x=remote_position.x(),
                         remote_y=remote_position.y(),
                         widget_width=self.width(),
@@ -564,7 +571,6 @@ class RdpCanvas(PyQt6.QtWidgets.QLabel):
                         framebuffer_height=framebuffer_height,
                         origin_x=origin.x(),
                         origin_y=origin.y(),
-                        pixmap_device_pixel_ratio=pixmap_device_pixel_ratio,
                         canvas_device_pixel_ratio=self.devicePixelRatioF()))
 
     def _enqueue_keyboard_event(self, key_event: PyQt6.QtGui.QKeyEvent, is_pressed: bool):
@@ -877,6 +883,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._command_socket_path = command_socket_path
         self._command_server = None
         self._shutdown_started = False
+        self._session_rdp_ready = False
         self._video_width = video_width
         self._video_height = video_height
 
@@ -887,6 +894,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
         self.setWindowTitle(
             rdp_client.connection_url.build_session_window_title(connection_url))
+        self.setMinimumSize(0, 0)
         self.resize(video_width, video_height)
 
         self._session_container = RdpSessionContainer(self)
@@ -895,8 +903,6 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
         self._canvas.set_input_queue(self._input_queue)
         self._canvas.set_remote_dimensions(video_width, video_height)
-        self._last_requested_resolution_width = None
-        self._last_requested_resolution_height = None
         self._session_container.resize_requested.connect(self._handle_canvas_resize_requested)
 
         self.setCentralWidget(self._session_container)
@@ -953,6 +959,10 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         else:
             self._canvas.reset_remote_pointer_state()
 
+        self._session_rdp_ready = True
+
+        self._canvas.send_session_ready_pointer_hover()
+
         if self._command_socket_path is None:
             return
 
@@ -1000,10 +1010,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         painter.end()
 
         self._frame_buffer.setDevicePixelRatio(1.0)
-        pixmap = PyQt6.QtGui.QPixmap.fromImage(self._frame_buffer)
-        pixmap.setDevicePixelRatio(1.0)
-        self._canvas.setPixmap(pixmap)
-        self._canvas.setAlignment(PyQt6.QtCore.Qt.AlignmentFlag.AlignCenter)
+        self._canvas.set_frame_image(self._frame_buffer)
         self._canvas.set_remote_dimensions(video_width, video_height)
         self._canvas.raise_cursor_overlay()
 
@@ -1016,6 +1023,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             PyQt6.QtGui.QImage.Format.Format_RGB32)
 
         self._canvas.set_remote_dimensions(width, height)
+        self._canvas.sync_pointer_after_geometry_change()
 
     def _handle_display_caps_unavailable(self):
         """Record when RDPDISP caps never arrive (core logs once)."""
@@ -1025,16 +1033,20 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
     def _handle_canvas_resize_requested(self, width: int, height: int):
         """Forward debounced client area size to the RDPDISP worker."""
 
+        if self._session_rdp_ready is False:
+            return
+
+        session = self._worker.get_session()
+
+        if session is None:
+            return
+
+        if session.display_caps_unavailable:
+            return
+
         even_width = rdp_client.display_control.clamp_even_display_width(width)
         clamped_height = rdp_client.display_control.clamp_display_height(height)
 
-        if even_width == self._last_requested_resolution_width \
-                and clamped_height == self._last_requested_resolution_height:
-
-            return
-
-        self._last_requested_resolution_width = even_width
-        self._last_requested_resolution_height = clamped_height
         self._worker.request_remote_resolution(even_width, clamped_height)
 
     def _handle_connection_terminated(self):

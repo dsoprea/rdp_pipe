@@ -1,4 +1,4 @@
-"""Unit tests for Qt session canvas geometry vs pixmap sizing."""
+"""Unit tests for Qt session canvas geometry vs framebuffer sizing."""
 
 import PyQt6.QtCore
 import PyQt6.QtGui
@@ -20,20 +20,23 @@ def qt_application():
     return qt_application_instance
 
 
-def _build_large_test_pixmap() -> PyQt6.QtGui.QPixmap:
-    """Return a 1600x900 pixmap matching a post-RDPDISP framebuffer."""
+def _build_large_test_frame_image() -> PyQt6.QtGui.QImage:
+    """Return a 1600x900 image matching a post-RDPDISP framebuffer."""
 
-    pixmap = PyQt6.QtGui.QPixmap(1600, 900)
-    pixmap.fill(PyQt6.QtGui.QColor(32, 32, 32))
+    frame_image = PyQt6.QtGui.QImage(
+        1600,
+        900,
+        PyQt6.QtGui.QImage.Format.Format_RGB32)
+    frame_image.fill(PyQt6.QtGui.QColor(32, 32, 32).rgb())
 
-    return pixmap
+    return frame_image
 
 
-def test_canvas_minimum_size_hint_does_not_block_shrink_after_set_pixmap(qt_application):
-    """RdpCanvas stays shrinkable after setPixmap when minimum size is cleared."""
+def test_canvas_stays_shrinkable_after_large_frame_image(qt_application):
+    """RdpCanvas stays shrinkable after a large framebuffer without QLabel pixmap hints."""
 
     canvas = rdp_client.qt_session_window.RdpCanvas()
-    canvas.setPixmap(_build_large_test_pixmap())
+    canvas.set_frame_image(_build_large_test_frame_image())
 
     assert canvas.minimumSize().width() == 0
     assert canvas.minimumSize().height() == 0
@@ -47,8 +50,23 @@ def test_canvas_minimum_size_hint_does_not_block_shrink_after_set_pixmap(qt_appl
     assert canvas.height() == 800
 
 
+def test_main_window_stays_shrinkable_after_large_frame_image(qt_application):
+    """A main-window shell does not inherit a large minimum size from the framebuffer."""
+
+    main_window = PyQt6.QtWidgets.QMainWindow()
+    main_window.setMinimumSize(0, 0)
+    session_container = rdp_client.qt_session_window.RdpSessionContainer()
+    main_window.setCentralWidget(session_container)
+    session_container.canvas.set_frame_image(_build_large_test_frame_image())
+    main_window.resize(1500, 900)
+    main_window.resize(1400, 800)
+
+    assert main_window.width() == 1400
+    assert main_window.height() == 800
+
+
 def test_session_container_resize_debounce_emits_client_area_size(qt_application):
-    """Container resize debounce uses the container rect, not pixmap size hints."""
+    """Container resize debounce uses the container rect, not framebuffer size hints."""
 
     container = rdp_client.qt_session_window.RdpSessionContainer()
     container.resize(1500, 850)
