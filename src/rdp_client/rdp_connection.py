@@ -54,6 +54,7 @@ import rdp_client.trust_store
 
 _LOGGER = logging.getLogger(__name__)
 DISPLAY_CONTROL_CAPS_TIMEOUT_SECONDS = 10.0
+TERMINATE_DISCONNECT_TIMEOUT_SECONDS = 2.0
 
 _CONNECTING_DESKTOP_CONNECTION = None
 _ORIGINAL_TS_UD_CS_CORE_TO_BYTES = \
@@ -328,7 +329,65 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
             except asyncio.CancelledError:
                 pass
 
-        return await aardwolf.connection.RDPConnection.terminate(self)
+        # Bound send_disconnect so a mid-connect MCS wait cannot stall past
+        # the GUI shutdown join.
+
+        try:
+            aardwolf_terminate = aardwolf.connection.RDPConnection.terminate(self)
+            terminate_result = \
+                await asyncio.wait_for(
+                    aardwolf_terminate,
+                    timeout=TERMINATE_DISCONNECT_TIMEOUT_SECONDS)
+
+        except asyncio.TimeoutError:
+
+            terminate_result = (None, None)
+            await self._close_aardwolf_transport()
+
+        await self._await_cancelled_aardwolf_reader_tasks()
+
+        return terminate_result
+
+    async def _close_aardwolf_transport(self):
+        """Close the aardwolf transport if terminate() timed out mid-disconnect."""
+
+        # __new__ test shells and mid-connect failures may have no transport.
+
+        transport_connection = getattr(
+            self,
+            "_RDPConnection__connection",
+            None)
+
+        if transport_connection is None:
+            return
+
+        await transport_connection.close()
+
+    async def _await_cancelled_aardwolf_reader_tasks(self):
+        """Await aardwolf x224 and external readers after they are cancelled."""
+
+        reader_tasks = [
+            getattr(self, "_RDPConnection__x224_reader_task", None),
+            getattr(self, "_RDPConnection__external_reader_task", None),
+        ]
+
+        # aardwolf cancel()s these tasks but does not await them.
+
+        for reader_task in reader_tasks:
+
+            if reader_task is None:
+                continue
+
+            if reader_task.done():
+                continue
+
+            reader_task.cancel()
+
+            try:
+                await reader_task
+
+            except asyncio.CancelledError:
+                pass
 
     async def connect(self):
         """Connect while capability-flag patching is active for Client Core Data."""

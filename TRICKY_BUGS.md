@@ -2,6 +2,70 @@
 
 Postmortems for unintuitive defects caused by wire formats, library behavior, or platform defaults — so we do not re-learn them.
 
+## Window close during connect leaves aardwolf reader tasks pending
+
+### Symptom
+
+Closing the Qt session window — often while the connecting overlay was still up, or while waiting after a dropped session — printed:
+
+```text
+Task was destroyed but it is pending!
+task: <Task pending name='Task-30' coro=<RDPConnection.__x224_reader() ...>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-34' coro=<RDPConnection.__external_reader() ...>>
+aardwolf ERROR  Error: Event loop is closed
+...
+  File ".../asyncio/queues.py", line 188, in get
+    getter.cancel()
+  File ".../asyncio/base_events.py", line 550, in _check_closed
+    raise RuntimeError('Event loop is closed')
+```
+
+The CLI had already printed `connecting...`. The process usually still exited, but teardown was noisy and racy.
+
+### Root cause
+
+Several teardown steps stacked:
+
+1. **`RdpSessionWorker.stop()` cancelled `_connection_task`** instead of scheduling `session.stop()`. Cancel during `connect()` raised `CancelledError` before aardwolf’s handshake finished.
+2. **`_run_connection`’s `finally` awaited `session.stop()` on an already-cancelled task.** Without `asyncio.shield()`, that await was cancelled again, so `terminate()` often never finished.
+3. **aardwolf `terminate()` cancels `__x224_reader` and `__external_reader` but does not await them.** `__x224_reader` is spawned in `__join_channels` (mid-connect). `__external_reader` sits on `ext_in_queue.get()`.
+4. **`_async_thread_main` called `loop.close()` immediately** after `run_until_complete`. Python 3.14 `Queue.get()` cleanup then used `loop.call_soon` on a closed loop.
+
+aardwolf `send_disconnect()` can also block on `MCS.out_queue.get()` during an incomplete connect, so the GUI’s 5s join timed out and cancelled from the Qt thread without `call_soon_threadsafe`.
+
+### Why it was tricky
+
+- The traceback lived inside aardwolf and asyncio, so it looked like a library bug rather than our loop-lifetime policy.
+- It only appeared sometimes: whether `finally` ran `terminate()` to completion before `loop.close()` was a race.
+- “Waiting to reconnect” was the same `connect()` overlay, not a separate reconnect implementation.
+
+### Journey
+
+- Confirmed stderr `connecting...` is printed by the GUI entrypoint before `QApplication.exec()`, so the overlay/connect path is the one that races.
+- Read aardwolf `terminate()`: it cancels reader tasks and returns; `__x224_reader`’s `finally` calls `terminate()` again (idempotent via `__terminate_called`).
+- Compared with headless `asyncio.run()`, which already drains pending tasks before closing the loop. The GUI worker did not.
+
+### Fix
+
+- Prefer `session.stop()` on the worker loop when a session exists; only cancel `_connection_task` if the session is not created yet.
+- `asyncio.shield(self._session.stop())` in `_run_connection` `finally`.
+- `close_event_loop_after_cancelling_pending_tasks()` cancels `asyncio.all_tasks()`, gathers them, then `shutdown_asyncgens` / `shutdown_default_executor` before `loop.close()`.
+- `RdpDesktopConnection.terminate()` waits up to 2s for aardwolf terminate, closes the transport on timeout, and awaits the name-mangled x224/external reader tasks.
+- Shutdown-timeout cancel uses `call_soon_threadsafe`.
+
+### Prevention
+
+- [`tests/test_rdp_session_shutdown.py`](tests/test_rdp_session_shutdown.py) covers loop drain of `Queue.get()` waiters, cooperative `stop()`, thread-safe timeout cancel, awaiting cancelled readers, and disconnect-timeout transport close.
+- Do not close a custom asyncio loop until every leftover task has been cancelled and awaited (same contract as `asyncio.run()`).
+
+### References
+
+- Python `asyncio.run()` shutdown: cancel leftover tasks, then close the loop.
+- aardwolf `RDPConnection.terminate` / `__x224_reader` / `__external_reader` in `aardwolf/connection.py`.
+- [`src/rdp_client/rdp_session_thread.py`](src/rdp_client/rdp_session_thread.py)
+- [`src/rdp_client/rdp_connection.py`](src/rdp_client/rdp_connection.py)
+
 ## Remote cursor shape mirroring (RDP Qt client)
 
 ### Symptom

@@ -17,6 +17,34 @@ import rdp_client.trust_store
 _LOGGER = logging.getLogger(__name__)
 
 
+def close_event_loop_after_cancelling_pending_tasks(
+        event_loop: asyncio.AbstractEventLoop) -> None:
+    """Cancel leftover tasks, shut down asyncio resources, then close the loop."""
+
+    # aardwolf leaves reader and channel tasks pending after terminate();
+    # closing the loop under those waiters raises Event loop is closed.
+
+    pending_tasks = asyncio.all_tasks(event_loop)
+    for pending_task in pending_tasks:
+        pending_task.cancel()
+
+    if len(pending_tasks) > 0:
+
+        gather_pending = asyncio.gather(
+            *pending_tasks,
+            return_exceptions=True)
+        event_loop.run_until_complete(gather_pending)
+
+    # Match asyncio.run() so async generators and the default executor exit
+    # before the loop is closed.
+
+    shutdown_asyncgens = event_loop.shutdown_asyncgens()
+    event_loop.run_until_complete(shutdown_asyncgens)
+    shutdown_default_executor = event_loop.shutdown_default_executor()
+    event_loop.run_until_complete(shutdown_default_executor)
+    event_loop.close()
+
+
 class RdpVideoFrame(rdp_client.rdp_session_core.RdpVideoFrame):
     """Partial framebuffer update emitted to the Qt main thread."""
 
@@ -172,7 +200,15 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
         finally:
             if self._session is not None:
-                await self._session.stop()
+
+                # Shield so a cancelled connect task still finishes terminate().
+
+                try:
+                    session_stop = self._session.stop()
+                    await asyncio.shield(session_stop)
+
+                except asyncio.CancelledError:
+                    pass
 
             if self._input_forwarder_future is not None:
                 self._input_forwarder_future.cancel()
@@ -187,12 +223,18 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
         asyncio.set_event_loop(self._event_loop)
 
         try:
-            self._connection_task = self._event_loop.create_task(self._run_connection())
-            self._event_loop.run_until_complete(self._connection_task)
-            self._event_loop.close()
 
-        except Exception:
-            traceback.print_exc()
+            connection_coroutine = self._run_connection()
+            self._connection_task = self._event_loop.create_task(connection_coroutine)
+
+            try:
+                self._event_loop.run_until_complete(self._connection_task)
+
+            except Exception:
+                traceback.print_exc()
+
+            finally:
+                close_event_loop_after_cancelling_pending_tasks(self._event_loop)
 
         finally:
             self._async_thread_finished_event.set()
@@ -210,17 +252,24 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
         self._gui_stopped_event.set()
 
-        if self._event_loop is not None and self._connection_task is not None:
-            if self._connection_task.done() is False:
-                self._event_loop.call_soon_threadsafe(self._connection_task.cancel)
+        # Cooperative terminate lets aardwolf readers finish. Cancelling the
+        # connect task aborts that cleanup and leaves Queue.get waiters pending.
+
+        if self._session is not None and self._event_loop is not None:
+
+            if self._event_loop.is_running():
+
+                session_stop = self._session.stop()
+                self._stop_future = asyncio.run_coroutine_threadsafe(
+                    session_stop,
+                    self._event_loop)
 
                 return
 
-        if self._session is not None and self._event_loop is not None:
-            if self._event_loop.is_running():
-                self._stop_future = asyncio.run_coroutine_threadsafe(
-                    self._session.stop(),
-                    self._event_loop)
+        if self._event_loop is not None and self._connection_task is not None:
+
+            if self._connection_task.done() is False:
+                self._event_loop.call_soon_threadsafe(self._connection_task.cancel)
 
     def wait_for_shutdown(self, timeout_seconds: float) -> bool:
         """Block until the asyncio worker thread exits or timeout_seconds elapses."""
@@ -231,12 +280,15 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
         self._async_thread.join(timeout=timeout_seconds)
 
         if self._async_thread.is_alive():
+
             _LOGGER.warning(
                 "RDP session shutdown timed out after {timeout_seconds} seconds".format(
                     timeout_seconds=timeout_seconds))
 
             if self._connection_task is not None and self._event_loop is not None:
-                self._connection_task.cancel()
+
+                if self._event_loop.is_running():
+                    self._event_loop.call_soon_threadsafe(self._connection_task.cancel)
 
             return False
 
