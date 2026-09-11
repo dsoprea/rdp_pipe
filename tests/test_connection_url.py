@@ -13,6 +13,67 @@ def test_normalize_bare_host():
     assert normalized == "rdp+ntlm-password://10.0.0.5"
 
 
+def test_normalize_generic_rdp_scheme():
+    """Generic rdp:// URLs upgrade to rdp+ntlm-password://."""
+
+    normalized = rdp_client.connection_url.normalize_connection_url(
+        "rdp://10.0.0.5")
+
+    assert normalized == "rdp+ntlm-password://10.0.0.5"
+
+
+def test_normalize_explicit_ntlm_scheme_unchanged():
+    """Explicit rdp+ntlm-password:// URLs are not rewritten."""
+
+    connection_url = "rdp+ntlm-password://10.0.0.5"
+    normalized = rdp_client.connection_url.normalize_connection_url(connection_url)
+
+    assert normalized == connection_url
+
+
+def test_prepare_generic_rdp_injects_password(monkeypatch):
+    """Generic rdp:// URLs gain NTLM scheme and an injected password."""
+
+    monkeypatch.setenv(
+        rdp_client.connection_url.RDP_PASSWORD_ENVIRONMENT_VARIABLE,
+        "s3cret")
+
+    prepared_url = rdp_client.connection_url.prepare_connection_url(
+        "rdp://admin@10.0.0.5")
+
+    assert prepared_url.startswith("rdp+ntlm-password://")
+    assert "s3cret" in prepared_url
+    assert "admin" in prepared_url
+
+
+def test_prepare_generic_rdp_preserves_userinfo(monkeypatch):
+    """Generic rdp:// URLs keep host, port, and domain-qualified username."""
+
+    monkeypatch.setenv(
+        rdp_client.connection_url.RDP_PASSWORD_ENVIRONMENT_VARIABLE,
+        "s3cret")
+
+    prepared_url = rdp_client.connection_url.prepare_connection_url(
+        "rdp://DOMAIN\\Administrator@10.0.0.5:3390")
+
+    assert prepared_url.startswith("rdp+ntlm-password://")
+    assert "Administrator" in prepared_url
+    assert ":3390" in prepared_url
+    assert "s3cret" in prepared_url
+
+
+def test_prepare_generic_rdp_yields_ntlm_credential():
+    """Prepared generic rdp:// URLs parse as NTLM password credentials."""
+
+    import asyauth.common.credentials
+
+    prepared_url = rdp_client.connection_url.prepare_connection_url(
+        "rdp://user:pass@10.0.0.5")
+    credential = asyauth.common.credentials.UniCredential.from_url(prepared_url)
+
+    assert type(credential).__name__ == "NTLMCredential"
+
+
 def test_password_from_url_userinfo():
     """Embedded URL password is returned without environment or stdin."""
 

@@ -20,7 +20,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "url",
-        help="aardwolf-style RDP URL or bare host (normalized to rdp+ntlm-password://)")
+        help="rdp://, rdp+ntlm-password://, or bare host (generic rdp:// prefers NTLM; server selects NLA vs TLS vs legacy)")
 
     parser.add_argument(
         "--headless",

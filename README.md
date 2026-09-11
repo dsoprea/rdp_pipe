@@ -29,9 +29,12 @@ Press **Ctrl+C in the terminal** where you launched `rdp` to disconnect and exit
 `URL` is an aardwolf-style connection string or bare host shorthand:
 
 ```bash
+.venv/bin/rdp rdp://DOMAIN\\Administrator@10.0.0.5:3389
 .venv/bin/rdp rdp+ntlm-password://DOMAIN\\Administrator@10.0.0.5:3389
 .venv/bin/rdp 10.0.0.5
 ```
+
+Generic `rdp://` URLs prefer NTLM password authentication; the server selects NLA (CredSSP), TLS-only, or legacy RDP during X.224 negotiation.
 
 
 ### Server certificate trust

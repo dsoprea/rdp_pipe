@@ -2,7 +2,7 @@
 
 ## CLI (`rdp`)
 
-- Positional RDP URL (aardwolf `rdp+ntlm-password://` form or bare host normalized to that scheme)
+- Positional RDP URL (`rdp://`, explicit `rdp+ntlm-password://`, or bare host normalized to `rdp+ntlm-password://`; generic `rdp://` prefers NTLM and follows the server's X.224 protocol choice)
 - Password from URL userinfo, `RDP_PASSWORD`, or stdin (`getpass` on a TTY; one line when piped)
 - Exits non-zero with a clear stderr message when password resolution fails
 - `--headless`: console-only mode (no PyQt6 window); requires `--pipe`
