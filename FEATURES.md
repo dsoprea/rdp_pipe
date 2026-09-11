@@ -5,8 +5,8 @@
 - Positional RDP URL (aardwolf `rdp+ntlm-password://` form or bare host normalized to that scheme)
 - Password from URL userinfo, `RDP_PASSWORD`, or stdin (`getpass` on a TTY; one line when piped)
 - Exits non-zero with a clear stderr message when password resolution fails
-- `--headless`: console-only mode (no PyQt6 window); requires `--command-socket`
-- `--command-socket PATH`: Unix domain socket for JSON-line automation (optional in GUI mode, mandatory with `--headless`)
+- `--headless`: console-only mode (no PyQt6 window); requires `--pipe`
+- `--pipe`: Unix domain socket for JSON-line automation at `/tmp/rdp.sock` (optional in GUI mode, mandatory with `--headless`)
 
 ## Command socket (automation)
 

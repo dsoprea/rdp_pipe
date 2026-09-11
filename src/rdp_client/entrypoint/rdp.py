@@ -7,6 +7,7 @@ import sys
 
 DEFAULT_VIDEO_WIDTH = 1280
 DEFAULT_VIDEO_HEIGHT = 800
+DEFAULT_PIPE_FILEPATH = "/tmp/rdp.sock"
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -22,22 +23,21 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--headless",
         action="store_true",
-        help="run without a GUI; requires --command-socket")
+        help="run without a GUI; requires --pipe")
 
     parser.add_argument(
-        "--command-socket",
-        dest="command_socket_path",
-        metavar="PATH",
-        help="Unix domain socket for JSON-line automation commands")
+        "--pipe",
+        action="store_true",
+        help="enable JSON-line automation on {0}".format(DEFAULT_PIPE_FILEPATH))
 
     return parser
 
 
 def validate_arguments(parser: argparse.ArgumentParser, arguments: argparse.Namespace):
-    """Enforce headless and command-socket requirements."""
+    """Enforce headless and pipe requirements."""
 
-    if arguments.headless and arguments.command_socket_path is None:
-        parser.error("--command-socket PATH is required when --headless is set")
+    if arguments.headless and not arguments.pipe:
+        parser.error("--pipe is required when --headless is set")
 
 
 def write_connection_progress_to_stderr(step_identifier: str):
@@ -138,14 +138,19 @@ def main(argv: list[str] | None = None) -> int:
 
         return 1
 
+    if arguments.pipe:
+        pipe_filepath = DEFAULT_PIPE_FILEPATH
+    else:
+        pipe_filepath = None
+
     if arguments.headless:
         return run_headless_session(
             connection_url,
-            arguments.command_socket_path)
+            pipe_filepath)
 
     sys.stderr.write("connecting...\n")
 
-    return run_gui_session(connection_url, arguments.command_socket_path)
+    return run_gui_session(connection_url, pipe_filepath)
 
 
 if __name__ == "__main__":

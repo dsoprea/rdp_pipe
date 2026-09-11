@@ -5,23 +5,34 @@ import pytest
 import rdp_client.entrypoint.rdp
 
 
-def test_headless_requires_command_socket():
-    """--headless without --command-socket is rejected."""
+def test_headless_requires_pipe():
+    """--headless without --pipe is rejected."""
 
     with pytest.raises(SystemExit):
         rdp_client.entrypoint.rdp.main(
             ["--headless", "10.0.0.5"])
 
 
-def test_command_socket_without_headless_parses():
-    """GUI mode accepts optional --command-socket."""
+def test_pipe_without_headless_parses():
+    """GUI mode accepts optional --pipe with the default socket path."""
 
     parser = rdp_client.entrypoint.rdp.build_argument_parser()
     arguments = parser.parse_args(
-        ["--command-socket", "/tmp/rdp.sock", "10.0.0.5"])
+        ["--pipe", "10.0.0.5"])
 
     assert arguments.headless is False
-    assert arguments.command_socket_path == "/tmp/rdp.sock"
+    assert arguments.pipe is True
+
+
+def test_headless_with_pipe_parses():
+    """Headless mode accepts --pipe."""
+
+    parser = rdp_client.entrypoint.rdp.build_argument_parser()
+    arguments = parser.parse_args(
+        ["--headless", "--pipe", "10.0.0.5"])
+
+    assert arguments.headless is True
+    assert arguments.pipe is True
 
 
 def test_write_connection_progress_to_stderr_writes_step_label(capsys):
