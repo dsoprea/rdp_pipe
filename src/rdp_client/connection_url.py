@@ -144,3 +144,14 @@ def prepare_connection_url(url_text: str) -> str:
     resolved_password = resolve_password(url_text)
 
     return inject_password_into_url(normalized_url, resolved_password)
+
+
+def build_session_window_title(connection_url: str) -> str:
+    """Return the PyQt6 session window title for a connection URL."""
+
+    parsed_url = urllib.parse.urlparse(connection_url)
+    hostname = parsed_url.hostname
+    if hostname is None:
+        raise ConnectionUrlError("connection URL has no hostname")
+
+    return "RDP - {hostname}".format(hostname=hostname)

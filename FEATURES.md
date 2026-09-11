@@ -27,6 +27,7 @@
 
 ## Desktop session (PyQt6)
 
+- Window title `RDP - <host>` where `<host>` is the connection hostname from the CLI URL argument
 - Connecting overlay: dimmed full-window modal centered on the session window listing connect steps (prepare, TCP/TLS, certificate trust, authentication, display configuration) until the session is ready
 - Resizable native window (default 1280×800) showing the remote framebuffer at 1:1 pixels (letterboxed when local and remote sizes differ)
 - Mouse move, press, release, and wheel forwarded while the cursor is over the canvas (no mouse grab)
@@ -34,6 +35,7 @@
 - Keyboard forwarded only while the pointer is inside the canvas
 - Partial framebuffer updates from aardwolf `RDP_VIDEO` rectangles
 - Remote desktop wallpaper when the server provides it (client does not request `DISABLE_WALLPAPER` at connect)
+- Closing the window sends an RDP disconnect and waits for the session to end before the process exits
 
 ## Seamless resize (MS-RDPEDISP)
 

@@ -82,3 +82,17 @@ def test_resolve_password_missing_raises(monkeypatch):
     with pytest.raises(rdp_client.connection_url.ConnectionUrlError):
         rdp_client.connection_url.resolve_password(
             "rdp+ntlm-password://user@10.0.0.5")
+
+
+def test_build_session_window_title_uses_hostname():
+    """Window title includes the connection hostname."""
+
+    bare_host_title = rdp_client.connection_url.build_session_window_title(
+        "rdp+ntlm-password://10.0.0.5")
+
+    assert bare_host_title == "RDP - 10.0.0.5"
+
+    userinfo_title = rdp_client.connection_url.build_session_window_title(
+        "rdp+ntlm-password://user:secret@win10.example")
+
+    assert userinfo_title == "RDP - win10.example"

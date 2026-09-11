@@ -48,9 +48,11 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
         self._session: rdp_client.rdp_session_core.RdpAsyncSession | None = None
         self._event_loop = None
         self._gui_stopped_event = threading.Event()
+        self._async_thread_finished_event = threading.Event()
         self._async_thread = None
         self._connection_task = None
         self._input_forwarder_future = None
+        self._stop_future = None
 
     def set_session(
             self,
@@ -80,12 +82,13 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
         while not self._session.connection.disconnected_evt.is_set():
             input_item = self._input_queue.get()
-            event_loop.call_soon_threadsafe(
-                self._session.connection.ext_in_queue.put_nowait,
-                input_item)
 
             if input_item is None:
                 break
+
+            event_loop.call_soon_threadsafe(
+                self._session.connection.ext_in_queue.put_nowait,
+                input_item)
 
     def _emit_video_frame(self, video_frame: rdp_client.rdp_session_core.RdpVideoFrame):
         """Bridge core video frames to the Qt signal."""
@@ -191,6 +194,9 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
         except Exception:
             traceback.print_exc()
 
+        finally:
+            self._async_thread_finished_event.set()
+
     @PyQt6.QtCore.pyqtSlot()
     def start(self):
         """Start the asyncio worker thread."""
@@ -206,18 +212,29 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
         if self._session is not None and self._event_loop is not None:
             if self._event_loop.is_running():
-                try:
-                    asyncio.run_coroutine_threadsafe(
-                        self._session.stop(),
-                        self._event_loop)
-                except Exception:
-                    pass
+                self._stop_future = asyncio.run_coroutine_threadsafe(
+                    self._session.stop(),
+                    self._event_loop)
 
-        if self._connection_task is not None and self._event_loop is not None:
-            try:
+    def wait_for_shutdown(self, timeout_seconds: float) -> bool:
+        """Block until the asyncio worker thread exits or timeout_seconds elapses."""
+
+        if self._async_thread is None:
+            return True
+
+        self._async_thread.join(timeout=timeout_seconds)
+
+        if self._async_thread.is_alive():
+            _LOGGER.warning(
+                "RDP session shutdown timed out after {timeout_seconds} seconds".format(
+                    timeout_seconds=timeout_seconds))
+
+            if self._connection_task is not None and self._event_loop is not None:
                 self._connection_task.cancel()
-            except Exception:
-                pass
+
+            return False
+
+        return True
 
     @PyQt6.QtCore.pyqtSlot(int, int)
     def request_remote_resolution(self, width: int, height: int):

@@ -16,6 +16,7 @@ import PyQt6.QtWidgets
 
 import rdp_client.command_socket
 import rdp_client.connection_progress
+import rdp_client.connection_url
 import rdp_client.pointer_debug
 import rdp_client.pointer_update
 import rdp_client.rdp_session_thread
@@ -29,6 +30,7 @@ CONNECTING_OVERLAY_PANEL_BACKGROUND = "#2b2b2b"
 
 DEFAULT_WINDOW_WIDTH = 1280
 DEFAULT_WINDOW_HEIGHT = 800
+SESSION_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 RESIZE_DEBOUNCE_MILLISECONDS = 250
 MOUSE_POINTER_DEBUG_INTERVAL_SECONDS = 0.5
 DEFAULT_SUPPRESS_SECONDS_AFTER_BITMAP = 0.1
@@ -868,6 +870,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._display_caps_warning_shown = False
         self._command_socket_path = command_socket_path
         self._command_server = None
+        self._shutdown_started = False
         self._video_width = video_width
         self._video_height = video_height
 
@@ -876,7 +879,8 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             video_height,
             PyQt6.QtGui.QImage.Format.Format_RGB32)
 
-        self.setWindowTitle("RDP session")
+        self.setWindowTitle(
+            rdp_client.connection_url.build_session_window_title(connection_url))
         self.resize(video_width, video_height)
 
         self._session_container = RdpSessionContainer(self)
@@ -911,7 +915,8 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._worker.session_ready.connect(self._handle_session_ready)
         self._worker.connection_progress.connect(self._handle_connection_progress)
 
-        PyQt6.QtWidgets.QApplication.instance().aboutToQuit.connect(self._worker_thread.quit)
+        PyQt6.QtWidgets.QApplication.instance().aboutToQuit.connect(
+            self._handle_application_about_to_quit)
         self._worker_thread.start()
 
     def _handle_connection_progress(self, step_identifier: str):
@@ -1019,14 +1024,30 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
         self.close()
 
-    def closeEvent(self, close_event: PyQt6.QtGui.QCloseEvent):
-        """Shut down input forwarding and the worker thread."""
+    def _handle_application_about_to_quit(self):
+        """Tear down the RDP session when the Qt application exits."""
+
+        self._shutdown_session_resources()
+
+    def _shutdown_session_resources(self):
+        """Stop automation, disconnect RDP, and join background worker threads."""
+
+        if self._shutdown_started:
+            return
+
+        self._shutdown_started = True
 
         if self._command_server is not None:
             self._command_server.stop()
 
         self._input_queue.put(None)
         self._worker.stop()
+        self._worker.wait_for_shutdown(SESSION_SHUTDOWN_TIMEOUT_SECONDS)
         self._worker_thread.quit()
         self._worker_thread.wait(2000)
+
+    def closeEvent(self, close_event: PyQt6.QtGui.QCloseEvent):
+        """Shut down input forwarding and wait for the RDP session to disconnect."""
+
+        self._shutdown_session_resources()
         super().closeEvent(close_event)
