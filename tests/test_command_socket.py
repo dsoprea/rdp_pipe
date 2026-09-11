@@ -3,6 +3,10 @@
 import asyncio
 import io
 import json
+import os
+import socket
+import tempfile
+import threading
 
 import PIL.Image
 import pytest
@@ -10,6 +14,105 @@ import pytest
 import rdp_client.command_socket
 import rdp_client.rdp_input
 import rdp_client.rdp_session_core
+
+
+def test_build_command_request_body():
+    """Request bodies include command and optional fields."""
+
+    request_body = rdp_client.command_socket.build_command_request_body(
+        "send_click",
+        x=10,
+        y=20,
+        button="left")
+
+    assert request_body == {
+        "command": "send_click",
+        "x": 10,
+        "y": 20,
+        "button": "left",
+    }
+
+
+def test_send_command_request_success():
+    """Client reads one success response line from the socket."""
+
+    temporary_directory = tempfile.mkdtemp()
+    socket_path = os.path.join(temporary_directory, "rdp.sock")
+
+    ready_event = threading.Event()
+
+    def server_thread_main():
+        listen_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listen_socket.bind(socket_path)
+        listen_socket.listen(1)
+        ready_event.set()
+
+        client_socket, _client_address = listen_socket.accept()
+
+        input_file = client_socket.makefile(mode="r", encoding="utf-8")
+        request_line = input_file.readline()
+        input_file.close()
+
+        assert request_line == '{"command":"receive_geometry"}\n'
+
+        response_line = rdp_client.command_socket.build_success_response(
+            {"width": 1280, "height": 800, "color_depth": 32})
+
+        client_socket.sendall((response_line + "\n").encode("utf-8"))
+        client_socket.close()
+        listen_socket.close()
+
+    server_thread = threading.Thread(target=server_thread_main)
+    server_thread.start()
+    ready_event.wait(timeout=2.0)
+
+    response_body = rdp_client.command_socket.send_command_request(
+        socket_path,
+        {"command": "receive_geometry"})
+
+    server_thread.join(timeout=2.0)
+
+    assert response_body["ok"] is True
+    assert response_body["result"]["width"] == 1280
+
+
+def test_send_command_request_error_raises():
+    """Client raises CommandSocketClientError when ok is false."""
+
+    temporary_directory = tempfile.mkdtemp()
+    socket_path = os.path.join(temporary_directory, "rdp.sock")
+
+    ready_event = threading.Event()
+
+    def server_thread_main():
+        listen_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listen_socket.bind(socket_path)
+        listen_socket.listen(1)
+        ready_event.set()
+
+        client_socket, _client_address = listen_socket.accept()
+
+        input_file = client_socket.makefile(mode="r", encoding="utf-8")
+        input_file.readline()
+        input_file.close()
+
+        response_line = rdp_client.command_socket.build_error_response("bad command")
+        client_socket.sendall((response_line + "\n").encode("utf-8"))
+        client_socket.close()
+        listen_socket.close()
+
+    server_thread = threading.Thread(target=server_thread_main)
+    server_thread.start()
+    ready_event.wait(timeout=2.0)
+
+    with pytest.raises(rdp_client.command_socket.CommandSocketClientError) as error_info:
+        rdp_client.command_socket.send_command_request(
+            socket_path,
+            {"command": "receive_geometry"})
+
+    server_thread.join(timeout=2.0)
+
+    assert str(error_info.value) == "bad command"
 
 
 def test_build_success_response():

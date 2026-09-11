@@ -11,6 +11,15 @@
 - `--color-depth N`: session bits per pixel (`15`, `16`, `24`, or `32`; default `32`); sets `receive_geometry.color_depth` and the framebuffer used by `receive_screenshot`
 - Terminal Ctrl+C (SIGINT in the launching shell) disconnects cleanly and exits without a traceback in GUI and headless modes
 
+## CLI (`rdp_remote`)
+
+Send one automation command to a running `rdp` session (started with `--pipe`):
+
+- `--sock-filepath PATH`: Unix domain socket (default `/tmp/rdp.sock`)
+- Subcommands (wire names prefixed with `command_`): `command_receive_geometry`, `command_send_geometry`, `command_receive_screenshot`, `command_send_click`, `command_send_key`
+- Writes the full JSON response envelope to stdout (`{"ok": true, "result": {...}}` or error via stderr with exit code `1`)
+- One invocation sends one command; see [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md) for wire field details
+
 ## Command socket (automation)
 
 Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md).

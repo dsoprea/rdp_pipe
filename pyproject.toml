@@ -22,6 +22,7 @@ dev = [
 
 [project.scripts]
 rdp = "rdp_client.entrypoint.rdp:main"
+rdp_remote = "rdp_client.entrypoint.rdp_remote:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

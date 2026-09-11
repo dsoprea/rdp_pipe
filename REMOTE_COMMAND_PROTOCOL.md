@@ -262,6 +262,20 @@ Modifier combinations (e.g. Ctrl+C) are not expressible as a single `key`; use `
 
 ## Client examples
 
+### `rdp_remote`
+
+```bash
+rdp_remote command_receive_geometry
+rdp_remote command_send_geometry 1920 1080
+rdp_remote command_send_geometry
+rdp_remote command_send_click 640 400 --button left
+rdp_remote command_send_key 'hello'
+rdp_remote command_send_key --key Return
+rdp_remote --sock-filepath /tmp/rdp.sock command_receive_screenshot --format png
+```
+
+Each invocation sends one JSON-line request and prints the full response envelope to stdout. Exit code `0` on success; stderr `error: …` and exit code `1` when the server returns `ok: false` or the socket is unavailable.
+
 ### `nc` (one shot)
 
 ```bash
@@ -312,6 +326,7 @@ Typical automation loop:
 | Command handlers (screenshot, input) | `src/rdp_client/rdp_session_core.py` |
 | Mouse / keyboard message builders | `src/rdp_client/rdp_input.py` |
 | CLI `--pipe` / `--headless` wiring | `src/rdp_client/entrypoint/rdp.py` |
+| Remote command CLI | `src/rdp_client/entrypoint/rdp_remote.py` |
 | GUI socket startup | `src/rdp_client/qt_session_window.py` |
 
 Supported command names are listed in `SUPPORTED_COMMANDS` in `command_socket.py`.

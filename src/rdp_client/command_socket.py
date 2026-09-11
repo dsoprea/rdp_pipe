@@ -61,6 +61,66 @@ def parse_command_request(request_line: str) -> dict:
     return request_body
 
 
+DEFAULT_COMMAND_SOCKET_PATH = "/tmp/rdp.sock"
+
+
+class CommandSocketClientError(Exception):
+    """Remote command socket returned ok false or an invalid response envelope."""
+
+
+def build_command_request_body(command_name: str, **fields) -> dict:
+    """Build one wire-protocol command request object."""
+
+    request_body = {"command": command_name}
+
+    for field_name in fields.keys():
+        request_body[field_name] = fields[field_name]
+
+    return request_body
+
+
+def send_command_request(socket_path: str, request_body: dict) -> dict:
+    """Send one JSON-line command and return the parsed response envelope."""
+
+    request_line = json.dumps(request_body, separators=(",", ":"))
+    request_line = request_line + "\n"
+
+    client_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client_socket.connect(socket_path)
+
+    try:
+        client_socket.sendall(request_line.encode("utf-8"))
+
+        response_buffer = b""
+
+        while b"\n" not in response_buffer:
+            received_chunk = client_socket.recv(4096)
+
+            if received_chunk == b"":
+                raise ConnectionError(
+                    "command socket closed before response line for command {command_name}".format(
+                        command_name=request_body["command"]))
+
+            response_buffer = response_buffer + received_chunk
+
+        response_line = response_buffer.split(b"\n", 1)[0].decode("utf-8")
+        response_body = json.loads(response_line)
+
+    finally:
+        client_socket.close()
+
+    if "ok" not in response_body:
+        raise CommandSocketClientError(
+            "command socket response missing ok field for command {command_name}".format(
+                command_name=request_body["command"]))
+
+    if response_body["ok"] is False:
+        error_message = response_body["error"]
+        raise CommandSocketClientError(error_message)
+
+    return response_body
+
+
 class CommandSocketServer:
     """Serve newline-delimited JSON commands over a Unix domain socket."""
 

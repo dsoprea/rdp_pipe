@@ -86,7 +86,16 @@ Headless mode uses a fixed 1280×800 session geometry (no window resize). The pr
 
 Full wire format, command parameters, response shapes, and client examples: **[REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md)**.
 
-Quick probe:
+Quick probe with `rdp_remote`:
+
+```bash
+.venv/bin/rdp_remote command_receive_geometry
+.venv/bin/rdp_remote command_send_geometry 1920 1080
+.venv/bin/rdp_remote command_send_click 640 400 --button left
+.venv/bin/rdp_remote --sock-filepath /tmp/rdp.sock command_receive_screenshot --format png
+```
+
+Or with `nc`:
 
 ```bash
 printf '%s\n' '{"command":"receive_geometry"}' | nc -U /tmp/rdp.sock
