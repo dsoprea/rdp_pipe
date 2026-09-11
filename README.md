@@ -79,13 +79,13 @@ export RDP_PASSWORD='your-password'
 
 Headless mode uses a fixed 1280×800 session geometry (no window resize). The process listens on the Unix socket for newline-delimited JSON commands. Use `--color-depth 24` (or `16`) when you need a specific bpp for screen analysis via `receive_screenshot`.
 
-Example request (one line per command):
+Full wire format, command parameters, response shapes, and client examples: **[REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md)**.
+
+Quick probe:
 
 ```bash
 printf '%s\n' '{"command":"receive_geometry"}' | nc -U /tmp/rdp.sock
 ```
-
-Commands: `receive_screenshot` (`format` default `png`, `quality` default `9`), `send_click` (`x`, `y`, `button`), `receive_geometry`, `send_key` (`keys` or `key`). Responses are JSON lines: `{"ok": true, "result": {...}}` or `{"ok": false, "error": "..."}`.
 
 `--pipe` is optional in GUI mode (automation socket at `/tmp/rdp.sock` alongside the window).
 

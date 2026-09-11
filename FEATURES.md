@@ -12,6 +12,8 @@
 
 ## Command socket (automation)
 
+Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md).
+
 - Newline-delimited JSON, one client at a time
 - `receive_screenshot`: remote framebuffer as base64 PNG/JPEG (`format`, `quality`)
 - `send_click`: mouse click at remote coordinates (`x`, `y`, `button`: left/right/middle)
