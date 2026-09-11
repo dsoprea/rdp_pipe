@@ -502,6 +502,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             connection_url: str,
             video_width: int,
             video_height: int,
+            color_depth: int = 32,
             command_socket_path: str | None = None,
             activity_stamp_filepath: str | None = None):
 
@@ -541,6 +542,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             video_width,
             video_height,
             self._input_queue,
+            color_depth=color_depth,
             activity_stamp_filepath=activity_stamp_filepath)
 
         self._worker_thread = PyQt6.QtCore.QThread()

@@ -40,6 +40,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
         self._connection_url = None
         self._video_width = None
         self._video_height = None
+        self._color_depth = None
         self._activity_stamp_filepath = None
         self._input_queue = None
         self._session: rdp_client.rdp_session_core.RdpAsyncSession | None = None
@@ -55,6 +56,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
             video_width: int,
             video_height: int,
             input_queue: queue.Queue,
+            color_depth: int = 32,
             activity_stamp_filepath: str | None = None):
 
         """Bind URL, video geometry, and the GUI input queue."""
@@ -62,6 +64,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
         self._connection_url = connection_url
         self._video_width = video_width
         self._video_height = video_height
+        self._color_depth = color_depth
         self._activity_stamp_filepath = activity_stamp_filepath
         self._input_queue = input_queue
 
@@ -118,6 +121,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
                 self._connection_url,
                 self._video_width,
                 self._video_height,
+                color_depth=self._color_depth,
                 activity_stamp_filepath=self._activity_stamp_filepath)
 
             self._session.add_video_frame_callback(self._emit_video_frame)

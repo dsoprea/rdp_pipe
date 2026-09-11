@@ -81,3 +81,22 @@ def test_help_flag_exits_successfully():
         rdp_client.entrypoint.rdp.main(["-h"])
 
     assert exit_info.value.code == 0
+
+
+def test_color_depth_default_is_32():
+    """--color-depth defaults to 32 bpp."""
+
+    parser = rdp_client.entrypoint.rdp.build_argument_parser()
+    arguments = parser.parse_args(["10.0.0.5"])
+
+    assert arguments.color_depth == rdp_client.entrypoint.rdp.DEFAULT_COLOR_DEPTH
+
+
+def test_color_depth_parses():
+    """--color-depth accepts supported bpp values."""
+
+    parser = rdp_client.entrypoint.rdp.build_argument_parser()
+    arguments = parser.parse_args(
+        ["--color-depth", "24", "10.0.0.5"])
+
+    assert arguments.color_depth == 24

@@ -8,6 +8,7 @@
 - `--headless`: console-only mode (no PyQt6 window); requires `--pipe`
 - `--pipe`: Unix domain socket for JSON-line automation at `/tmp/rdp.sock` (optional in GUI mode, mandatory with `--headless`)
 - `--activity-stamp-filepath PATH`: touch `PATH` on each remote framebuffer update (for external watchdogs / idle detection)
+- `--color-depth N`: session bits per pixel (`15`, `16`, `24`, or `32`; default `32`); sets `receive_geometry.color_depth` and the framebuffer used by `receive_screenshot`
 
 ## Command socket (automation)
 
@@ -36,7 +37,7 @@
 ## Seamless resize (MS-RDPEDISP)
 
 - Registers dynamic virtual channel `Microsoft::Windows::RDS::DisplayControl`
-- Advertises monitor-layout and 32 bpp session capability flags at connect
+- Advertises monitor-layout capability at connect; requests 32 bpp session flags when `--color-depth` is `32` (default)
 - Debounced window resize (~250 ms) sends `DISPLAYCONTROL_MONITOR_LAYOUT_PDU`
 - Reallocates local desktop buffer when the server changes session geometry
 - Falls back to letterboxing when the server does not send RDPDISP caps (warning logged once)

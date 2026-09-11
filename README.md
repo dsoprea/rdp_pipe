@@ -77,7 +77,7 @@ export RDP_PASSWORD='your-password'
 .venv/bin/rdp --headless --pipe '10.0.0.5'
 ```
 
-Headless mode uses a fixed 1280×800 session geometry (no window resize). The process listens on the Unix socket for newline-delimited JSON commands.
+Headless mode uses a fixed 1280×800 session geometry (no window resize). The process listens on the Unix socket for newline-delimited JSON commands. Use `--color-depth 24` (or `16`) when you need a specific bpp for screen analysis via `receive_screenshot`.
 
 Example request (one line per command):
 

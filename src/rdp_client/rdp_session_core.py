@@ -45,6 +45,7 @@ class RdpAsyncSession:
             connection_url: str,
             video_width: int,
             video_height: int,
+            color_depth: int = 32,
             activity_stamp_filepath: str | None = None):
 
         """Prepare session state; call connect and run_until_stopped."""
@@ -52,6 +53,7 @@ class RdpAsyncSession:
         self._connection_url = connection_url
         self._video_width = video_width
         self._video_height = video_height
+        self._color_depth = color_depth
         self._activity_stamp_filepath = activity_stamp_filepath
         self._iosettings = None
         self._display_control_channel = None
@@ -135,7 +137,8 @@ class RdpAsyncSession:
         iosettings, _display_control_channel = \
             rdp_client.rdp_connection.build_iosettings_with_display_control(
                 self._video_width,
-                self._video_height)
+                self._video_height,
+                self._color_depth)
 
         self._iosettings = iosettings
 

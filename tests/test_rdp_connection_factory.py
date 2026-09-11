@@ -20,6 +20,19 @@ def test_build_iosettings_does_not_disable_wallpaper():
     assert (iosettings.performance_flags & disable_wallpaper_flag) == 0
 
 
+def test_build_iosettings_honors_color_depth():
+    """video_bpp_max and video_bpp_min match the requested color depth."""
+
+    iosettings, _display_control_channel = \
+        rdp_client.rdp_connection.build_iosettings_with_display_control(
+            1280,
+            800,
+            color_depth=16)
+
+    assert iosettings.video_bpp_max == 16
+    assert iosettings.video_bpp_min == 16
+
+
 def test_get_connection_preserves_display_control_channel_identity():
     """Virtual channel instances in vchannels must not be duplicated by deepcopy."""
 

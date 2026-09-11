@@ -7,6 +7,7 @@ import sys
 
 DEFAULT_VIDEO_WIDTH = 1280
 DEFAULT_VIDEO_HEIGHT = 800
+DEFAULT_COLOR_DEPTH = 32
 DEFAULT_PIPE_FILEPATH = "/tmp/rdp.sock"
 
 
@@ -35,6 +36,15 @@ def build_argument_parser() -> argparse.ArgumentParser:
         dest="activity_stamp_filepath",
         help="touch this file on each remote framebuffer update")
 
+    parser.add_argument(
+        "--color-depth",
+        dest="color_depth",
+        type=int,
+        choices=(15, 16, 24, 32),
+        default=DEFAULT_COLOR_DEPTH,
+        help="session bits per pixel (default {0}); affects receive_screenshot and receive_geometry".format(
+            DEFAULT_COLOR_DEPTH))
+
     return parser
 
 
@@ -59,7 +69,8 @@ def write_connection_progress_to_stderr(step_identifier: str):
 def run_gui_session(
         connection_url: str,
         command_socket_path: str | None,
-        activity_stamp_filepath: str | None) -> int:
+        activity_stamp_filepath: str | None,
+        color_depth: int) -> int:
     """Launch the PyQt6 desktop client."""
 
     import PyQt6.QtWidgets
@@ -71,6 +82,7 @@ def run_gui_session(
         connection_url,
         DEFAULT_VIDEO_WIDTH,
         DEFAULT_VIDEO_HEIGHT,
+        color_depth=color_depth,
         command_socket_path=command_socket_path,
         activity_stamp_filepath=activity_stamp_filepath)
 
@@ -82,7 +94,8 @@ def run_gui_session(
 async def run_headless_session_async(
         connection_url: str,
         command_socket_path: str,
-        activity_stamp_filepath: str | None) -> int:
+        activity_stamp_filepath: str | None,
+        color_depth: int) -> int:
 
     """Connect headlessly and serve automation commands."""
 
@@ -92,6 +105,7 @@ async def run_headless_session_async(
         connection_url,
         DEFAULT_VIDEO_WIDTH,
         DEFAULT_VIDEO_HEIGHT,
+        color_depth=color_depth,
         activity_stamp_filepath=activity_stamp_filepath)
 
     session.set_progress_callback(write_connection_progress_to_stderr)
@@ -127,14 +141,16 @@ async def run_headless_session_async(
 def run_headless_session(
         connection_url: str,
         command_socket_path: str,
-        activity_stamp_filepath: str | None) -> int:
+        activity_stamp_filepath: str | None,
+        color_depth: int) -> int:
     """Run the headless asyncio session loop."""
 
     return asyncio.run(
         run_headless_session_async(
             connection_url,
             command_socket_path,
-            activity_stamp_filepath))
+            activity_stamp_filepath,
+            color_depth))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -164,14 +180,16 @@ def main(argv: list[str] | None = None) -> int:
         return run_headless_session(
             connection_url,
             pipe_filepath,
-            arguments.activity_stamp_filepath)
+            arguments.activity_stamp_filepath,
+            arguments.color_depth)
 
     sys.stderr.write("connecting...\n")
 
     return run_gui_session(
         connection_url,
         pipe_filepath,
-        arguments.activity_stamp_filepath)
+        arguments.activity_stamp_filepath,
+        arguments.color_depth)
 
 
 if __name__ == "__main__":

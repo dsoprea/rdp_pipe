@@ -34,10 +34,12 @@ def _patched_ts_ud_cs_core_to_bytes(self):
         if self.earlyCapabilityFlags is not None:
             self.earlyCapabilityFlags = (
                 self.earlyCapabilityFlags
-                | aardwolf.protocol.T124.userdata.constants.RNS_UD_CS.SUPPORT_MONITOR_LAYOUT_PDU
-                | aardwolf.protocol.T124.userdata.constants.RNS_UD_CS.WANT_32BPP_SESSION)
+                | aardwolf.protocol.T124.userdata.constants.RNS_UD_CS.SUPPORT_MONITOR_LAYOUT_PDU)
 
             if _CONNECTING_DESKTOP_CONNECTION.iosettings.video_bpp_max == 32:
+                self.earlyCapabilityFlags = (
+                    self.earlyCapabilityFlags
+                    | aardwolf.protocol.T124.userdata.constants.RNS_UD_CS.WANT_32BPP_SESSION)
                 self.highColorDepth = \
                     aardwolf.protocol.T124.userdata.constants.HIGH_COLOR_DEPTH.HIGH_COLOR_24BPP
 
@@ -488,8 +490,9 @@ class RdpDesktopConnectionFactory(aardwolf.commons.factory.RDPConnectionFactory)
 def build_iosettings_with_display_control(
         video_width: int,
         video_height: int,
+        color_depth: int = 32,
         resolution_request_callback=None) -> "aardwolf.commons.iosettings.RDPIOSettings":
-    """Create iosettings with RDPDISP channel registration and 32 bpp video."""
+    """Create iosettings with RDPDISP channel registration and the requested bpp."""
 
     import aardwolf.commons.iosettings
     import aardwolf.extensions.RDPECLIP.channel
@@ -502,8 +505,8 @@ def build_iosettings_with_display_control(
     ]
     iosettings.video_width = video_width
     iosettings.video_height = video_height
-    iosettings.video_bpp_max = 32
-    iosettings.video_bpp_min = 16
+    iosettings.video_bpp_max = color_depth
+    iosettings.video_bpp_min = color_depth
     iosettings.performance_flags = (
         iosettings.performance_flags
         & ~aardwolf.protocol.T125.extendedinfopacket.PERF.DISABLE_WALLPAPER)
