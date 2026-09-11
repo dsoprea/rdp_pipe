@@ -24,6 +24,8 @@ This creates `.venv/` and installs the package in editable mode with test depend
 
 GUI mode (default) opens a PyQt6 window. `--headless` runs without a display and **requires** `--pipe` for automation on `/tmp/rdp.sock`.
 
+Press **Ctrl+C in the terminal** where you launched `rdp` to disconnect and exit cleanly (this does not affect keyboard input forwarded inside the session window).
+
 `URL` is an aardwolf-style connection string or bare host shorthand:
 
 ```bash

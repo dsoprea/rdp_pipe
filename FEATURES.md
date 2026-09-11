@@ -9,6 +9,7 @@
 - `--pipe`: Unix domain socket for JSON-line automation at `/tmp/rdp.sock` (optional in GUI mode, mandatory with `--headless`)
 - `--activity-stamp-filepath PATH`: touch `PATH` on each remote framebuffer update (for external watchdogs / idle detection)
 - `--color-depth N`: session bits per pixel (`15`, `16`, `24`, or `32`; default `32`); sets `receive_geometry.color_depth` and the framebuffer used by `receive_screenshot`
+- Terminal Ctrl+C (SIGINT in the launching shell) disconnects cleanly and exits without a traceback in GUI and headless modes
 
 ## Command socket (automation)
 

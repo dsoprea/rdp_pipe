@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import signal
 import sys
 
 
@@ -73,6 +74,7 @@ def run_gui_session(
         color_depth: int) -> int:
     """Launch the PyQt6 desktop client."""
 
+    import PyQt6.QtCore
     import PyQt6.QtWidgets
 
     import rdp_client.qt_session_window
@@ -88,6 +90,19 @@ def run_gui_session(
 
     session_window.show()
 
+    def handle_terminal_sigint(_signum, _frame):
+        """Disconnect the RDP session when the operator presses Ctrl+C in the shell."""
+
+        session_window.close()
+        qt_application.quit()
+
+    signal.signal(signal.SIGINT, handle_terminal_sigint)
+
+    # Allow Python to deliver SIGINT while Qt owns the main thread event loop.
+    signal_timer = PyQt6.QtCore.QTimer()
+    signal_timer.timeout.connect(lambda: None)
+    signal_timer.start(200)
+
     return qt_application.exec()
 
 
@@ -99,6 +114,7 @@ async def run_headless_session_async(
 
     """Connect headlessly and serve automation commands."""
 
+    import rdp_client.command_socket
     import rdp_client.rdp_session_core
 
     session = rdp_client.rdp_session_core.RdpAsyncSession(
@@ -110,29 +126,42 @@ async def run_headless_session_async(
 
     session.set_progress_callback(write_connection_progress_to_stderr)
 
-    await session.connect()
+    command_server = None
+    event_loop = asyncio.get_running_loop()
+    lifecycle_task = asyncio.current_task()
 
-    import rdp_client.command_socket
+    def handle_shutdown_signal():
+        """Stop the session and cancel connect or output-loop waits on terminal Ctrl+C."""
 
-    command_server = rdp_client.command_socket.CommandSocketServer(
-        command_socket_path,
-        session)
+        asyncio.create_task(session.stop())
 
-    command_server.start()
+        if lifecycle_task is not None:
+            lifecycle_task.cancel()
 
-    sys.stderr.write(
-        "listening on {socket_path}\n".format(socket_path=command_socket_path))
-
-    session_task = asyncio.create_task(session.run_until_stopped())
+    event_loop.add_signal_handler(signal.SIGINT, handle_shutdown_signal)
+    event_loop.add_signal_handler(signal.SIGTERM, handle_shutdown_signal)
 
     try:
-        await session_task
+        await session.connect()
+
+        command_server = rdp_client.command_socket.CommandSocketServer(
+            command_socket_path,
+            session)
+
+        command_server.start()
+
+        sys.stderr.write(
+            "listening on {socket_path}\n".format(socket_path=command_socket_path))
+
+        await session.run_until_stopped()
 
     except asyncio.CancelledError:
         pass
 
     finally:
-        command_server.stop()
+        if command_server is not None:
+            command_server.stop()
+
         await session.stop()
 
     return 0
