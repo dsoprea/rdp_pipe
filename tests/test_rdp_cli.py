@@ -24,6 +24,20 @@ def test_command_socket_without_headless_parses():
     assert arguments.command_socket_path == "/tmp/rdp.sock"
 
 
+def test_write_connection_progress_to_stderr_writes_step_label(capsys):
+    """Headless progress callback prints operator-facing step labels."""
+
+    import rdp_client.connection_progress
+
+    rdp_client.entrypoint.rdp.write_connection_progress_to_stderr(
+        rdp_client.connection_progress.CONNECTION_STEP_AUTHENTICATING)
+
+    captured = capsys.readouterr()
+
+    assert captured.out == ""
+    assert captured.err == "Authenticating\n"
+
+
 def test_help_flag_exits_successfully():
     """-h prints usage and exits zero."""
 

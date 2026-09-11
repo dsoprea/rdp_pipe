@@ -40,6 +40,17 @@ def validate_arguments(parser: argparse.ArgumentParser, arguments: argparse.Name
         parser.error("--command-socket PATH is required when --headless is set")
 
 
+def write_connection_progress_to_stderr(step_identifier: str):
+    """Write one labeled connection step to stderr for headless operators."""
+
+    import rdp_client.connection_progress
+
+    step_label = rdp_client.connection_progress.get_connection_step_label(
+        step_identifier)
+
+    sys.stderr.write("{step_label}\n".format(step_label=step_label))
+
+
 def run_gui_session(connection_url: str, command_socket_path: str | None) -> int:
     """Launch the PyQt6 desktop client."""
 
@@ -71,6 +82,8 @@ async def run_headless_session_async(
         connection_url,
         DEFAULT_VIDEO_WIDTH,
         DEFAULT_VIDEO_HEIGHT)
+
+    session.set_progress_callback(write_connection_progress_to_stderr)
 
     await session.connect()
 
@@ -125,12 +138,12 @@ def main(argv: list[str] | None = None) -> int:
 
         return 1
 
-    sys.stderr.write("connecting...\n")
-
     if arguments.headless:
         return run_headless_session(
             connection_url,
             arguments.command_socket_path)
+
+    sys.stderr.write("connecting...\n")
 
     return run_gui_session(connection_url, arguments.command_socket_path)
 

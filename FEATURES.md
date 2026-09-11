@@ -20,6 +20,7 @@
 ## Headless mode
 
 - No display server required; fixed 1280×800 connect resolution
+- Connection progress steps printed to stderr (prepare, connect, certificate trust, authentication, display configuration, ready)
 - Serves the command socket until the RDP session ends
 
 ## Desktop session (PyQt6)
