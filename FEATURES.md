@@ -5,6 +5,22 @@
 - Positional RDP URL (aardwolf `rdp+ntlm-password://` form or bare host normalized to that scheme)
 - Password from URL userinfo, `RDP_PASSWORD`, or stdin (`getpass` on a TTY; one line when piped)
 - Exits non-zero with a clear stderr message when password resolution fails
+- `--headless`: console-only mode (no PyQt6 window); requires `--command-socket`
+- `--command-socket PATH`: Unix domain socket for JSON-line automation (optional in GUI mode, mandatory with `--headless`)
+
+## Command socket (automation)
+
+- Newline-delimited JSON, one client at a time
+- `receive_screenshot`: remote framebuffer as base64 PNG/JPEG (`format`, `quality`)
+- `send_click`: mouse click at remote coordinates (`x`, `y`, `button`: left/right/middle)
+- `receive_geometry`: `width`, `height`, `color_depth`
+- `send_key`: type text (`keys`) or press a named key (`key`, e.g. `Return`, `Escape`)
+- Automation input bypasses pointer-inside-canvas gating used by the GUI
+
+## Headless mode
+
+- No display server required; fixed 1280×800 connect resolution
+- Serves the command socket until the RDP session ends
 
 ## Desktop session (PyQt6)
 

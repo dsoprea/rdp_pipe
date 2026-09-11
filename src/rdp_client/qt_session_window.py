@@ -13,7 +13,6 @@ import PyQt6.QtCore
 import PyQt6.QtGui
 import PyQt6.QtWidgets
 
-import rdp_client.rdp_connection
 import rdp_client.rdp_session_thread
 
 
@@ -286,7 +285,13 @@ class RdpCanvas(PyQt6.QtWidgets.QLabel):
 class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
     """Top-level window hosting the RDP canvas and background session worker."""
 
-    def __init__(self, connection_url: str, video_width: int, video_height: int):
+    def __init__(
+            self,
+            connection_url: str,
+            video_width: int,
+            video_height: int,
+            command_socket_path: str | None = None):
+
         """Build UI, iosettings, and the asyncio/Qt bridge."""
 
         super().__init__()
@@ -294,14 +299,10 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._connection_url = connection_url
         self._input_queue = queue.Queue()
         self._display_caps_warning_shown = False
-
-        iosettings, display_control_channel = \
-            rdp_client.rdp_connection.build_iosettings_with_display_control(
-                video_width,
-                video_height)
-
-        self._iosettings = iosettings
-        self._display_control_channel = display_control_channel
+        self._command_socket_path = command_socket_path
+        self._command_server = None
+        self._video_width = video_width
+        self._video_height = video_height
 
         self._frame_buffer = PyQt6.QtGui.QImage(
             video_width,
@@ -321,8 +322,8 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._worker = rdp_client.rdp_session_thread.RdpSessionWorker()
         self._worker.set_session(
             connection_url,
-            self._iosettings,
-            self._display_control_channel,
+            video_width,
+            video_height,
             self._input_queue)
 
         self._worker_thread = PyQt6.QtCore.QThread()
@@ -332,17 +333,40 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._worker.connection_terminated.connect(self._handle_connection_terminated)
         self._worker.resolution_changed.connect(self._handle_resolution_changed)
         self._worker.display_caps_unavailable.connect(self._handle_display_caps_unavailable)
+        self._worker.session_ready.connect(self._handle_session_ready)
 
         PyQt6.QtWidgets.QApplication.instance().aboutToQuit.connect(self._worker_thread.quit)
         self._worker_thread.start()
+
+    def _handle_session_ready(self, session):
+        """Start the optional command socket after RDP connect succeeds."""
+
+        if self._command_socket_path is None:
+            return
+
+        import rdp_client.command_socket
+
+        self._command_server = rdp_client.command_socket.CommandSocketServer(
+            self._command_socket_path,
+            session)
+
+        self._command_server.start()
 
     def _handle_video_frame(self, video_frame: rdp_client.rdp_session_thread.RdpVideoFrame):
         """Blit a partial rectangle into the local QImage buffer."""
 
         patch_image = PIL.ImageQt.ImageQt(video_frame.image)
 
-        if video_frame.width == self._iosettings.video_width \
-                and video_frame.height == self._iosettings.video_height:
+        session = self._worker.get_session()
+        video_width = self._video_width
+        video_height = self._video_height
+
+        if session is not None:
+            video_width = session.iosettings.video_width
+            video_height = session.iosettings.video_height
+
+        if video_frame.width == video_width \
+                and video_frame.height == video_height:
             self._frame_buffer = patch_image
         else:
             painter = PyQt6.QtGui.QPainter(self._frame_buffer)
@@ -392,6 +416,9 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
     def closeEvent(self, close_event: PyQt6.QtGui.QCloseEvent):
         """Shut down input forwarding and the worker thread."""
+
+        if self._command_server is not None:
+            self._command_server.stop()
 
         self._input_queue.put(None)
         self._worker.stop()

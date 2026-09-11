@@ -19,8 +19,10 @@ This creates `.venv/` and installs the package in editable mode with test depend
 ## Connect
 
 ```bash
-.venv/bin/rdp_connect URL
+.venv/bin/rdp_connect [-h] [--headless] [--command-socket PATH] URL
 ```
+
+GUI mode (default) opens a PyQt6 window. `--headless` runs without a display and **requires** `--command-socket` for automation.
 
 `URL` is an aardwolf-style connection string or bare host shorthand:
 
@@ -50,13 +52,32 @@ export RDP_PASSWORD='your-password'
 echo 'your-password' | .venv/bin/rdp_connect 'rdp+ntlm-password://Administrator@10.0.0.5'
 ```
 
+### Headless automation
+
+```bash
+export RDP_PASSWORD='your-password'
+.venv/bin/rdp_connect --headless --command-socket /tmp/rdp.sock '10.0.0.5'
+```
+
+Headless mode uses a fixed 1280×800 session geometry (no window resize). The process listens on the Unix socket for newline-delimited JSON commands.
+
+Example request (one line per command):
+
+```bash
+printf '%s\n' '{"command":"receive_geometry"}' | nc -U /tmp/rdp.sock
+```
+
+Commands: `receive_screenshot` (`format` default `png`, `quality` default `9`), `send_click` (`x`, `y`, `button`), `receive_geometry`, `send_key` (`keys` or `key`). Responses are JSON lines: `{"ok": true, "result": {...}}` or `{"ok": false, "error": "..."}`.
+
+`--command-socket` is optional in GUI mode (automation socket alongside the window).
+
 ## Test
 
 ```bash
 ./script/test.sh
 ```
 
-Offline unit tests cover URL/password handling and RDPDISP PDU encoding.
+Offline unit tests cover URL/password handling, RDPDISP PDU encoding, command socket protocol, and CLI validation.
 
 ## Manual smoke
 
