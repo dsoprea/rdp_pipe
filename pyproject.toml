@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rdp_client"
+version = "0.0.1"
+description = "PyQt6 desktop RDP client with seamless resize (MS-RDPEDISP)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aardwolf",
+    "PyQt6",
+    "Pillow",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[project.scripts]
+rdp_connect = "rdp_client.entrypoint.rdp_connect:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
