@@ -1,6 +1,6 @@
 # rdp_client
 
-Python desktop RDP client for Linux operators connecting to Windows hosts with NLA (CredSSP) and NTLM password authentication. The UI is a native PyQt6 window with pointer-gated keyboard input and seamless resize via MS-RDPEDISP when the server supports it.
+Python desktop RDP client for Linux operators connecting to remote hosts over RDP with NLA (CredSSP) and NTLM password authentication. The UI is a native PyQt6 window with pointer-gated keyboard input and seamless resize via MS-RDPEDISP when the server supports it.
 
 ## Prerequisites
 
@@ -81,4 +81,4 @@ Offline unit tests cover URL/password handling, RDPDISP PDU encoding, command so
 
 ## Manual smoke
 
-Connect to a Windows 10/11 or Windows Server host with NLA enabled. Resize the client window and confirm the remote display resolution tracks (remote Display Settings or `GetScreenResolution` in PowerShell). RDPDISP requires server support (Windows 8 / Server 2012+); many XRDP builds do not advertise display control.
+Connect to an RDP host with NLA enabled. Resize the client window and confirm the remote display resolution tracks when the server supports RDPDISP. Servers without RDPDISP keep a fixed session resolution; the local window may letterbox until disconnect.

@@ -1,4 +1,4 @@
-"""Connect to a Windows RDP server with a GUI window or headless command socket."""
+"""Connect to an RDP server with a GUI window or headless command socket."""
 
 import argparse
 import asyncio

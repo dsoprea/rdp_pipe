@@ -40,10 +40,10 @@
 ## Authentication scope
 
 - NLA / CredSSP with NTLM password URLs (`rdp+ntlm-password://`)
-- Windows RDP targets with NLA enabled
+- Remote host must offer NLA (CredSSP) compatible with aardwolf’s NTLM password auth
 
 ## Known limitations
 
-- RDPDISP requires server support; older or non-Windows RDP stacks may not resize remotely
+- RDPDISP requires server support; some RDP implementations do not advertise display control and will not resize remotely
 - Clipboard, multi-monitor, drive redirection, and RemoteApp (RAIL) are not implemented
 - aardwolf bitmap rendering path only; modern GFX/H.264 remoting may not apply
