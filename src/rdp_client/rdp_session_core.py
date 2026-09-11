@@ -8,6 +8,7 @@ import aardwolf.commons.queuedata
 import aardwolf.commons.queuedata.constants
 import PIL.Image
 
+import rdp_client.connection_progress
 import rdp_client.rdp_connection
 import rdp_client.rdp_input
 
@@ -57,6 +58,7 @@ class RdpAsyncSession:
         self._display_caps_unavailable = False
         self._resolution_changed_callbacks = []
         self._video_frame_callbacks = []
+        self._progress_callback = None
 
     @property
     def event_loop(self) -> asyncio.AbstractEventLoop | None:
@@ -108,8 +110,24 @@ class RdpAsyncSession:
 
         self._video_frame_callbacks.append(callback)
 
+    def set_progress_callback(self, callback):
+        """Register callback(step_identifier) for connection progress updates."""
+
+        self._progress_callback = callback
+
+    def _report_connection_progress(self, step_identifier: str):
+        """Invoke the optional progress callback for a connect step."""
+
+        if self._progress_callback is None:
+            return
+
+        self._progress_callback(step_identifier)
+
     async def connect(self):
         """Establish the RDP connection and wait for RDPDISP caps."""
+
+        self._report_connection_progress(
+            rdp_client.connection_progress.CONNECTION_STEP_PREPARING)
 
         iosettings, display_control_channel = \
             rdp_client.rdp_connection.build_iosettings_with_display_control(
@@ -126,6 +144,7 @@ class RdpAsyncSession:
 
         self._connection = connection_factory.get_connection(self._iosettings)
         self._connection.display_control_channel = self._display_control_channel
+        self._connection.progress_callback = self._report_connection_progress
 
         self._display_control_channel.set_resolution_request_callback(
             self._reallocate_desktop_buffer_for_resolution_request)
@@ -139,6 +158,9 @@ class RdpAsyncSession:
         if connect_ok is None:
             raise RdpSessionError("RDP connection failed without an error detail")
 
+        self._report_connection_progress(
+            rdp_client.connection_progress.CONNECTION_STEP_CONFIGURING_DISPLAY)
+
         await self._connection.open_display_control_channel()
 
         caps_available = await self._display_control_channel.wait_for_caps(
@@ -148,6 +170,9 @@ class RdpAsyncSession:
             self._display_caps_unavailable = True
             _LOGGER.warning(
                 "RDPDISP caps not received; seamless resize disabled for this server")
+
+        self._report_connection_progress(
+            rdp_client.connection_progress.CONNECTION_STEP_READY)
 
         self._connected_event.set()
 

@@ -13,6 +13,7 @@ import aardwolf.protocol.T124.userdata.clientcoredata
 import aardwolf.protocol.T124.userdata.constants
 import PIL.Image
 
+import rdp_client.connection_progress
 import rdp_client.display_control
 import rdp_client.trust_store
 
@@ -131,6 +132,7 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
 
         self.resolution_changed_listeners = []
         self.display_control_channel: rdp_client.display_control.DisplayControlChannel | None = None
+        self.progress_callback = None
 
     def add_resolution_changed_listener(self, listener):
         """Register listener(width, height) called after the desktop buffer is resized."""
@@ -175,6 +177,14 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
         return await open_virtual_channel(
             rdp_client.display_control.DISPLAY_CONTROL_CHANNEL_NAME)
 
+    def _report_connection_progress(self, step_identifier: str):
+        """Invoke the optional GUI progress callback for a connect step."""
+
+        if self.progress_callback is None:
+            return
+
+        self.progress_callback(step_identifier)
+
     async def connect(self):
         """Connect while capability-flag patching is active for Client Core Data."""
 
@@ -183,6 +193,9 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
         _CONNECTING_DESKTOP_CONNECTION = self
 
         try:
+            self._report_connection_progress(
+                rdp_client.connection_progress.CONNECTION_STEP_CONNECTING)
+
             connect_result = await aardwolf.connection.RDPConnection.connect(self)
 
             return connect_result
@@ -399,6 +412,9 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
     async def credssp_auth(self):
         """Verify or accept the server TLS certificate before CredSSP authentication."""
 
+        self._report_connection_progress(
+            rdp_client.connection_progress.CONNECTION_STEP_VERIFYING_CERTIFICATE)
+
         transport_connection = self._RDPConnection__connection
         peer_certificate = transport_connection.get_peer_certificate()
 
@@ -417,6 +433,9 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
             remote_ip,
             peer_certificate,
             trust_metadata)
+
+        self._report_connection_progress(
+            rdp_client.connection_progress.CONNECTION_STEP_AUTHENTICATING)
 
         return await aardwolf.connection.RDPConnection.credssp_auth(self)
 

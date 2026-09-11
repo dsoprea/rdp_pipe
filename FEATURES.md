@@ -24,6 +24,7 @@
 
 ## Desktop session (PyQt6)
 
+- Connecting overlay: dimmed full-window modal centered on the session window listing connect steps (prepare, TCP/TLS, certificate trust, authentication, display configuration) until the session is ready
 - Resizable native window (default 1280×800) showing the remote framebuffer at 1:1 pixels (letterboxed when local and remote sizes differ)
 - Mouse move, press, release, and wheel forwarded while the cursor is over the canvas (no mouse grab)
 - Keyboard forwarded only while the pointer is inside the canvas

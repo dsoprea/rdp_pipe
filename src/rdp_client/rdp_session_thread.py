@@ -30,6 +30,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
     resolution_changed = PyQt6.QtCore.pyqtSignal(int, int)
     display_caps_unavailable = PyQt6.QtCore.pyqtSignal()
     session_ready = PyQt6.QtCore.pyqtSignal(object)
+    connection_progress = PyQt6.QtCore.pyqtSignal(str)
 
     def __init__(self, parent=None):
         """Initialize worker state; call set_session before start."""
@@ -98,6 +99,14 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
         self.resolution_changed.emit(width, height)
 
+    def _emit_connection_progress(self, step_identifier: str):
+        """Bridge connection progress updates to the Qt signal."""
+
+        if self._gui_stopped_event.is_set():
+            return
+
+        self.connection_progress.emit(step_identifier)
+
     async def _run_connection(self):
         """Connect, stream VIDEO events, and honor shutdown."""
 
@@ -109,6 +118,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
             self._session.add_video_frame_callback(self._emit_video_frame)
             self._session.add_resolution_changed_callback(self._emit_resolution_changed)
+            self._session.set_progress_callback(self._emit_connection_progress)
 
             await self._session.connect()
 
