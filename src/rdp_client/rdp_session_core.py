@@ -66,16 +66,13 @@ class RdpAsyncSession:
         self._video_frame_callbacks = []
         self._pointer_update_callbacks = []
         self._progress_callback = None
+        self._event_loop: asyncio.AbstractEventLoop | None = None
 
     @property
     def event_loop(self) -> asyncio.AbstractEventLoop | None:
-        """Return the asyncio loop when the session task is running."""
+        """Return the asyncio loop that owns this session."""
 
-        try:
-            return asyncio.get_running_loop()
-
-        except RuntimeError:
-            return None
+        return self._event_loop
 
     @property
     def connection(self):
@@ -137,6 +134,8 @@ class RdpAsyncSession:
 
     async def connect(self):
         """Establish the RDP connection and wait for RDPDISP caps."""
+
+        self._event_loop = asyncio.get_running_loop()
 
         self._report_connection_progress(
             rdp_client.connection_progress.CONNECTION_STEP_PREPARING)

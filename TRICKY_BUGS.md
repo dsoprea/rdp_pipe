@@ -112,6 +112,61 @@ iosettings.performance_flags = (
 - Code: `rdp_connection.py`, `pointer_update.py`, `qt_session_window.py`, `pointer_debug.py`, `rdp_session_core.py`, `rdp_session_thread.py`
 - Reverted experiments: `fastpath_input.py` (do not enable without fixing transport)
 
+## RDPDISP layout applies only once (Deactivate All / Demand Active)
+
+### Symptom
+
+The first `send_geometry` (or first window resize) changed the remote desktop. A second layout request returned success (or appeared to send) but the remote resolution stayed at the first new size. The local canvas stayed pinned at the top-left of a larger window.
+
+### Root cause
+
+Without the graphics pipeline (`egfx`), MS-RDPEDISP applies a monitor layout by running the RDP **deactivation–reactivation** sequence (`Deactivate All` then `Demand Active`, then the client must `Confirm Active` and repeat Synchronize / Control / Font List). aardwolf never reads the MCS share channel after the original connect, so `Demand Active` sat unread on `MCS.out_queue`. The first layout still painted because fast-path bitmaps continued; the server then refused or ignored further layouts while waiting for Confirm Active.
+
+Confirm Active also omitted `TS_BITMAP_CAPABILITYSET.desktopResizeFlag`, so the client advertised that it cannot resize the desktop.
+
+### Why it was tricky
+
+- Qt pixmap / window geometry bugs produce the same “only once / top-left” picture, so those were chased first.
+- `send_geometry` returning `ok: true` only means the DVC write succeeded, not that reactivation completed.
+- Fast-path video still flows during a half-finished reactivation, so the session looks healthy.
+
+### Fix
+
+- After connect, drain MCS share PDUs and complete reactivation on `Demand Active`.
+- Set `desktopResizeFlag=True` on every Confirm Active (initial connect via the handle_out_data augment, and mid-session Confirm Active).
+- Clear RDPDISP `channel_id` / caps if the server closes the DVC during reactivation, then open the channel again.
+
+### Prevention
+
+- [`tests/test_rdp_connection_factory.py`](tests/test_rdp_connection_factory.py) asserts `desktopResizeFlag` and Demand Active buffer realloc.
+- After the first `send_geometry`, a second different size must change both `receive_geometry` and the painted desktop.
+
+### References
+
+- [MS-RDPBCGR deactivation-reactivation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/dfc234ce-481a-4306-9e45-0e9a5e4e6c82)
+- [MS-RDPEDISP monitor layout](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpedisp/22741217-12a0-4fb8-b5a0-df43905aaf06)
+- [`src/rdp_client/rdp_connection.py`](src/rdp_client/rdp_connection.py) — `_run_share_channel_loop`, `_complete_deactivation_reactivation`
+
+## Command pipe fails with “event loop is not running”
+
+### Symptom
+
+`rdp --pipe` creates `/tmp/rdp.sock`, but `socat` / `nc` commands hang, time out, or return  
+`{"ok":false,"error":"RDP session event loop is not running"}`.
+
+### Root cause
+
+`CommandSocketServer` runs on a background thread and marshals commands with `asyncio.run_coroutine_threadsafe` onto the session loop. `RdpAsyncSession.event_loop` used `asyncio.get_running_loop()`, which only works **inside** a running coroutine on that loop — not from the command-socket thread. The property always returned `None` there.
+
+### Fix
+
+Capture the loop at the start of `RdpAsyncSession.connect()` (`self._event_loop = asyncio.get_running_loop()`) and return that stored reference from the `event_loop` property.
+
+### Prevention
+
+- [`tests/test_command_socket.py`](tests/test_command_socket.py) dispatches a command via `asyncio.to_thread` while the session loop is running.
+- Any cross-thread asyncio bridge must hold an explicit loop reference, not call `get_running_loop()` from the foreign thread.
+
 ## QLabel setPixmap raises minimum size and blocks repeat RDPDISP resize
 
 ### Symptom
@@ -130,15 +185,25 @@ Seamless resize (MS-RDPEDISP) worked once after connect; dragging the client win
 
 ### Fix
 
-- `RdpCanvas`: `setMinimumSize(0, 0)`, `QSizePolicy.Ignored`, `setScaledContents(False)` so pixmap size does not constrain parent geometry.
+- `RdpCanvas` is a `QWidget` that paints a `QImage` in `paintEvent` — do **not** use `QLabel.setPixmap()` for the framebuffer; pixmap size hints still constrain the main window even with `setMinimumSize(0, 0)`.
+- `RdpCanvas`: `setMinimumSize(0, 0)` and `QSizePolicy.Ignored`; `RdpSessionContainer` and `RdpSessionWindow` also use zero minimum / ignored size policy.
 - Move RDPDISP debounce to `RdpSessionContainer.resizeEvent` using the **container** client area size.
+- Do **not** record “last requested resolution” in the Qt layer before the RDPDISP PDU is sent — pre-connect debounces and failed sends poisoned dedup and blocked later resizes. Track last-sent size only in `DisplayControlChannel.request_resolution` after `channel_data_out` succeeds.
+- Gate resize requests until `session_ready` (RDPDISP caps are negotiated during connect). Dedup only in `DisplayControlChannel.request_resolution` (`_last_sent_width` / `_last_sent_height`) after a successful `channel_data_out` — do not compare client size to `session.iosettings` in Qt and do not seed `record_sent_resolution` with the negotiated connect size (that blocks the first real layout PDU when the container already matches).
+- Forward every debounced container resize after `session_ready`; the display channel skips identical consecutive layouts.
+- Map mouse input with authoritative `_remote_width` / `_remote_height` (`qt_session_mapping.py`), not `pixmap.width()` / `pixmap.height()` while the pixmap lags the session after RDPDISP.
+- After geometry changes, re-forward hover at the last pointer position (`sync_pointer_after_geometry_change`) so server hit-testing and the cursor overlay stay aligned.
 
 ### Prevention
 
 - [`tests/test_qt_session_geometry.py`](tests/test_qt_session_geometry.py) asserts the canvas shrinks after `setPixmap` when minimum size is zero.
+- [`tests/test_display_control_pdu.py`](tests/test_display_control_pdu.py) asserts duplicate layout PDUs are not retransmitted.
+- [`tests/test_qt_session_mapping.py`](tests/test_qt_session_mapping.py) covers letterbox mapping against session dimensions.
 - When using `QLabel` as a framebuffer surface, never rely on implicit minimum size from pixmap content.
 
 ### References
 
 - [`src/rdp_client/qt_session_window.py`](src/rdp_client/qt_session_window.py) — `RdpCanvas`, `RdpSessionContainer`
+- [`src/rdp_client/qt_session_mapping.py`](src/rdp_client/qt_session_mapping.py) — shared coordinate mapping
+- [`src/rdp_client/display_control.py`](src/rdp_client/display_control.py) — last-sent layout dedup
 - Qt `QLabel::minimumSizeHint()` — returns pixmap size when a pixmap is set

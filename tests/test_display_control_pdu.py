@@ -1,5 +1,6 @@
 """Unit tests for RDPDISP PDU encoding and caps decoding."""
 
+import asyncio
 import struct
 
 import rdp_client.display_control
@@ -54,9 +55,85 @@ def test_decode_caps_pdu_round_trip_fields():
     assert caps.max_monitor_area_factor_b == 8192
 
 
+def test_record_sent_resolution_skips_initial_duplicate_layout_pdu():
+    """Negotiated connect size can be marked sent without a wire PDU."""
+
+    async def run_recorded_resolution_requests():
+        channel = rdp_client.display_control.DisplayControlChannel()
+        channel._caps = rdp_client.display_control.DisplayControlCaps(1, 8192, 8192)
+        transmit_count = 0
+
+        async def count_channel_data_out(pdu_bytes: bytes):
+            nonlocal transmit_count
+            transmit_count = transmit_count + 1
+
+        channel.channel_data_out = count_channel_data_out
+        channel.record_sent_resolution(1280, 800)
+
+        accepted = await channel.request_resolution(1280, 800)
+
+        return accepted, transmit_count
+
+    accepted, transmit_count = asyncio.run(run_recorded_resolution_requests())
+
+    assert accepted is True
+    assert transmit_count == 0
+
+
+def test_request_resolution_skips_duplicate_layout_pdu():
+    """Identical clamped layouts are not transmitted twice in a row."""
+
+    async def run_duplicate_resolution_requests():
+        channel = rdp_client.display_control.DisplayControlChannel()
+        channel._caps = rdp_client.display_control.DisplayControlCaps(1, 8192, 8192)
+        transmit_count = 0
+
+        async def count_channel_data_out(pdu_bytes: bytes):
+            nonlocal transmit_count
+            transmit_count = transmit_count + 1
+
+        channel.channel_data_out = count_channel_data_out
+
+        first_accepted = await channel.request_resolution(1280, 800)
+        second_accepted = await channel.request_resolution(1280, 800)
+        third_accepted = await channel.request_resolution(1400, 800)
+
+        return first_accepted, second_accepted, third_accepted, transmit_count
+
+    first_accepted, second_accepted, third_accepted, transmit_count = \
+        asyncio.run(run_duplicate_resolution_requests())
+
+    assert first_accepted is True
+    assert second_accepted is True
+    assert third_accepted is True
+    assert transmit_count == 2
+
+
 def test_clamp_even_display_width_bounds():
     """Width clamping enforces minimum, maximum, and even width."""
 
     assert rdp_client.display_control.clamp_even_display_width(100) == 200
     assert rdp_client.display_control.clamp_even_display_width(9000) == 8192
     assert rdp_client.display_control.clamp_even_display_width(801) == 800
+
+
+def test_channel_closed_clears_caps_and_channel_id():
+    """Server DVC close during reactivation must not leave a stale channel id."""
+
+    async def run_channel_closed():
+        channel = rdp_client.display_control.DisplayControlChannel()
+        channel.channel_id = 7
+        channel._caps = rdp_client.display_control.DisplayControlCaps(1, 8192, 8192)
+        channel._caps_received_event.set()
+        channel._last_sent_width = 1600
+        channel._last_sent_height = 900
+
+        await channel.channel_closed()
+
+        return channel.channel_id, channel.caps_received, channel._last_sent_width
+
+    channel_id, caps_received, last_sent_width = asyncio.run(run_channel_closed())
+
+    assert channel_id is None
+    assert caps_received is False
+    assert last_sent_width is None

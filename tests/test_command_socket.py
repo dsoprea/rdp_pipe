@@ -1,5 +1,6 @@
 """Unit tests for command socket protocol helpers."""
 
+import asyncio
 import io
 import json
 
@@ -90,3 +91,38 @@ def test_build_text_key_messages_unicode_pairs():
     assert messages[0].char == "a"
     assert messages[1].char == "a"
     assert messages[2].char == "b"
+
+
+def test_dispatch_request_from_background_thread_uses_stored_event_loop():
+    """Command socket threads must not call asyncio.get_running_loop() on the session."""
+
+    async def run_command_socket_dispatch_from_worker_thread():
+        session = rdp_client.rdp_session_core.RdpAsyncSession(
+            "rdp+ntlm-password://example.test",
+            1280,
+            800)
+        session._event_loop = asyncio.get_running_loop()
+
+        async def handle_receive_geometry():
+            return {
+                "width": 1280,
+                "height": 800,
+                "color_depth": 32,
+            }
+
+        session.handle_receive_geometry = handle_receive_geometry
+
+        command_server = rdp_client.command_socket.CommandSocketServer(
+            "/tmp/test-rdp-command-socket.sock",
+            session)
+
+        response_line = await asyncio.to_thread(
+            command_server._dispatch_request_line,
+            '{"command":"receive_geometry"}')
+
+        response_body = json.loads(response_line)
+
+        assert response_body["ok"] is True
+        assert response_body["result"]["width"] == 1280
+
+    asyncio.run(run_command_socket_dispatch_from_worker_thread())

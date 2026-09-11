@@ -159,11 +159,25 @@ class DisplayControlChannel(aardwolf.extensions.RDPEDYC.vchannels.VirtualChannel
         self._caps_received_event = asyncio.Event()
         self._resolution_request_callback = resolution_request_callback
         self._caps_missing_logged = False
+        self._last_sent_width: int | None = None
+        self._last_sent_height: int | None = None
 
     def set_resolution_request_callback(self, resolution_request_callback):
         """Attach callback(width, height) invoked after a layout PDU is sent."""
 
         self._resolution_request_callback = resolution_request_callback
+
+    def reset_sent_resolution_tracking(self):
+        """Clear last-sent layout dimensions so the next request always transmits."""
+
+        self._last_sent_width = None
+        self._last_sent_height = None
+
+    def record_sent_resolution(self, width: int, height: int):
+        """Mark the negotiated session size as already sent without transmitting."""
+
+        self._last_sent_width = clamp_even_display_width(width)
+        self._last_sent_height = clamp_display_height(height)
 
     @property
     def caps_received(self) -> bool:
@@ -175,6 +189,18 @@ class DisplayControlChannel(aardwolf.extensions.RDPEDYC.vchannels.VirtualChannel
         """Accept channel creation; caps arrive asynchronously."""
 
         return True, None
+
+    async def channel_closed(self):
+        """Drop channel id and caps when the server closes RDPDISP during reactivation."""
+
+        # Clear last-sent size so a later open can transmit the same layout again.
+
+        self.channel_id = None
+        self._caps = None
+        self._caps_received_event.clear()
+        self._last_sent_width = None
+        self._last_sent_height = None
+        await aardwolf.extensions.RDPEDYC.vchannels.VirtualChannelBase.channel_closed(self)
 
     async def channel_data_in(self, data: bytes):
         """Handle incoming RDPDISP PDUs from the server."""
@@ -213,8 +239,16 @@ class DisplayControlChannel(aardwolf.extensions.RDPEDYC.vchannels.VirtualChannel
         even_width = clamp_even_display_width(width)
         clamped_height = clamp_display_height(height)
 
+        if even_width == self._last_sent_width \
+                and clamped_height == self._last_sent_height:
+
+            return True
+
         pdu_bytes = encode_monitor_layout_pdu(even_width, clamped_height)
         await self.channel_data_out(pdu_bytes)
+
+        self._last_sent_width = even_width
+        self._last_sent_height = clamped_height
 
         if self._resolution_request_callback is not None:
             self._resolution_request_callback(even_width, clamped_height)
