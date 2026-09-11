@@ -19,7 +19,7 @@ This creates `.venv/` and installs the package in editable mode with test depend
 ## Connect
 
 ```bash
-.venv/bin/rdp_connect [-h] [--headless] [--command-socket PATH] URL
+.venv/bin/rdp [-h] [--headless] [--command-socket PATH] URL
 ```
 
 GUI mode (default) opens a PyQt6 window. `--headless` runs without a display and **requires** `--command-socket` for automation.
@@ -27,8 +27,8 @@ GUI mode (default) opens a PyQt6 window. `--headless` runs without a display and
 `URL` is an aardwolf-style connection string or bare host shorthand:
 
 ```bash
-.venv/bin/rdp_connect rdp+ntlm-password://DOMAIN\\Administrator@10.0.0.5:3389
-.venv/bin/rdp_connect 10.0.0.5
+.venv/bin/rdp rdp+ntlm-password://DOMAIN\\Administrator@10.0.0.5:3389
+.venv/bin/rdp 10.0.0.5
 ```
 
 
@@ -63,18 +63,18 @@ Examples:
 
 ```bash
 export RDP_PASSWORD='your-password'
-.venv/bin/rdp_connect 'rdp+ntlm-password://DOMAIN\Administrator@10.0.0.5'
+.venv/bin/rdp 'rdp+ntlm-password://DOMAIN\Administrator@10.0.0.5'
 ```
 
 ```bash
-echo 'your-password' | .venv/bin/rdp_connect 'rdp+ntlm-password://Administrator@10.0.0.5'
+echo 'your-password' | .venv/bin/rdp 'rdp+ntlm-password://Administrator@10.0.0.5'
 ```
 
 ### Headless automation
 
 ```bash
 export RDP_PASSWORD='your-password'
-.venv/bin/rdp_connect --headless --command-socket /tmp/rdp.sock '10.0.0.5'
+.venv/bin/rdp --headless --command-socket /tmp/rdp.sock '10.0.0.5'
 ```
 
 Headless mode uses a fixed 1280×800 session geometry (no window resize). The process listens on the Unix socket for newline-delimited JSON commands.

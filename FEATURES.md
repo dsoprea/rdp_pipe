@@ -1,6 +1,6 @@
 # Features
 
-## CLI (`rdp_connect`)
+## CLI (`rdp`)
 
 - Positional RDP URL (aardwolf `rdp+ntlm-password://` form or bare host normalized to that scheme)
 - Password from URL userinfo, `RDP_PASSWORD`, or stdin (`getpass` on a TTY; one line when piped)

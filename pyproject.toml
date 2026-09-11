@@ -20,7 +20,7 @@ dev = [
 ]
 
 [project.scripts]
-rdp_connect = "rdp_client.entrypoint.rdp_connect:main"
+rdp = "rdp_client.entrypoint.rdp:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
