@@ -17,6 +17,7 @@ import PyQt6.QtWidgets
 import rdp_client.command_socket
 import rdp_client.connection_progress
 import rdp_client.connection_url
+import rdp_client.display_control
 import rdp_client.pointer_debug
 import rdp_client.pointer_update
 import rdp_client.rdp_session_thread
@@ -289,6 +290,8 @@ class RdpRemoteCursorOverlay(PyQt6.QtWidgets.QWidget):
 class RdpSessionContainer(PyQt6.QtWidgets.QWidget):
     """Hosts the remote canvas with a connecting overlay stacked above it."""
 
+    resize_requested = PyQt6.QtCore.pyqtSignal(int, int)
+
     def __init__(self, parent=None):
         """Create the canvas and overlay children."""
 
@@ -296,6 +299,12 @@ class RdpSessionContainer(PyQt6.QtWidgets.QWidget):
 
         self._canvas = RdpCanvas(self)
         self._connecting_overlay = RdpConnectingOverlay(self)
+        self._resize_debounce_timer = PyQt6.QtCore.QTimer(self)
+        self._resize_debounce_timer.setSingleShot(True)
+        self._resize_debounce_timer.setInterval(RESIZE_DEBOUNCE_MILLISECONDS)
+        self._resize_debounce_timer.timeout.connect(self._emit_debounced_resize)
+        self._pending_resize_width = DEFAULT_WINDOW_WIDTH
+        self._pending_resize_height = DEFAULT_WINDOW_HEIGHT
 
     @property
     def canvas(self) -> RdpCanvas:
@@ -310,18 +319,28 @@ class RdpSessionContainer(PyQt6.QtWidgets.QWidget):
         return self._connecting_overlay
 
     def resizeEvent(self, resize_event: PyQt6.QtGui.QResizeEvent):
-        """Resize children to fill the container."""
+        """Resize children to fill the container and debounce RDPDISP requests."""
 
         container_rectangle = self.rect()
         self._canvas.setGeometry(container_rectangle)
         self._connecting_overlay.setGeometry(container_rectangle)
+
+        self._pending_resize_width = container_rectangle.width()
+        self._pending_resize_height = container_rectangle.height()
+        self._resize_debounce_timer.start()
+
         super().resizeEvent(resize_event)
+
+    def _emit_debounced_resize(self):
+        """Emit resize_requested after debounce settles."""
+
+        self.resize_requested.emit(
+            self._pending_resize_width,
+            self._pending_resize_height)
 
 
 class RdpCanvas(PyQt6.QtWidgets.QLabel):
     """Remote desktop canvas with mouse forwarding and pointer-gated keyboard."""
-
-    resize_requested = PyQt6.QtCore.pyqtSignal(int, int)
 
     def __init__(self, parent=None):
         """Create canvas state for framebuffer dimensions and input gating."""
@@ -340,13 +359,12 @@ class RdpCanvas(PyQt6.QtWidgets.QLabel):
         self._cursor_overlay = RdpRemoteCursorOverlay(self)
         self._cursor_overlay.hide()
         self._input_queue: queue.Queue | None = None
-        self._resize_debounce_timer = PyQt6.QtCore.QTimer(self)
-        self._resize_debounce_timer.setSingleShot(True)
-        self._resize_debounce_timer.setInterval(RESIZE_DEBOUNCE_MILLISECONDS)
-        self._resize_debounce_timer.timeout.connect(self._emit_debounced_resize)
-        self._pending_resize_width = DEFAULT_WINDOW_WIDTH
-        self._pending_resize_height = DEFAULT_WINDOW_HEIGHT
 
+        self.setMinimumSize(0, 0)
+        self.setSizePolicy(
+            PyQt6.QtWidgets.QSizePolicy.Policy.Ignored,
+            PyQt6.QtWidgets.QSizePolicy.Policy.Ignored)
+        self.setScaledContents(False)
         self.setMouseTracking(True)
         self.setFocusPolicy(PyQt6.QtCore.Qt.FocusPolicy.StrongFocus)
 
@@ -830,23 +848,11 @@ class RdpCanvas(PyQt6.QtWidgets.QLabel):
         super().keyReleaseEvent(key_event)
 
     def resizeEvent(self, resize_event: PyQt6.QtGui.QResizeEvent):
-        """Keep the pointer overlay sized and debounce remote resize requests."""
+        """Keep the pointer overlay sized with the canvas."""
 
         self._cursor_overlay.setGeometry(self.rect())
         self._cursor_overlay.raise_()
-
-        client_size = self.size()
-        self._pending_resize_width = client_size.width()
-        self._pending_resize_height = client_size.height()
-        self._resize_debounce_timer.start()
         super().resizeEvent(resize_event)
-
-    def _emit_debounced_resize(self):
-        """Emit resize_requested after debounce settles."""
-
-        self.resize_requested.emit(
-            self._pending_resize_width,
-            self._pending_resize_height)
 
 
 class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
@@ -889,7 +895,9 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
         self._canvas.set_input_queue(self._input_queue)
         self._canvas.set_remote_dimensions(video_width, video_height)
-        self._canvas.resize_requested.connect(self._handle_canvas_resize_requested)
+        self._last_requested_resolution_width = None
+        self._last_requested_resolution_height = None
+        self._session_container.resize_requested.connect(self._handle_canvas_resize_requested)
 
         self.setCentralWidget(self._session_container)
 
@@ -1015,9 +1023,19 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._display_caps_warning_shown = True
 
     def _handle_canvas_resize_requested(self, width: int, height: int):
-        """Forward debounced canvas size to the RDPDISP worker."""
+        """Forward debounced client area size to the RDPDISP worker."""
 
-        self._worker.request_remote_resolution(width, height)
+        even_width = rdp_client.display_control.clamp_even_display_width(width)
+        clamped_height = rdp_client.display_control.clamp_display_height(height)
+
+        if even_width == self._last_requested_resolution_width \
+                and clamped_height == self._last_requested_resolution_height:
+
+            return
+
+        self._last_requested_resolution_width = even_width
+        self._last_requested_resolution_height = clamped_height
+        self._worker.request_remote_resolution(even_width, clamped_height)
 
     def _handle_connection_terminated(self):
         """Close the window when the background session ends."""

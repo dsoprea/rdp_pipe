@@ -111,3 +111,34 @@ iosettings.performance_flags = (
 - [Broadcom KB — resize pointer / pointer shadow](https://knowledge.broadcom.com/external/article/411249/unable-to-resize-windows-in-an-mstsc-rdp.html)
 - Code: `rdp_connection.py`, `pointer_update.py`, `qt_session_window.py`, `pointer_debug.py`, `rdp_session_core.py`, `rdp_session_thread.py`
 - Reverted experiments: `fastpath_input.py` (do not enable without fixing transport)
+
+## QLabel setPixmap raises minimum size and blocks repeat RDPDISP resize
+
+### Symptom
+
+Seamless resize (MS-RDPEDISP) worked once after connect; dragging the client window again did not change remote resolution. Resize cursors on window edges stopped updating after the first resize.
+
+### Root cause
+
+`RdpCanvas` is a `QLabel` that calls `setPixmap()` with a pixmap sized to the remote framebuffer. Qt raises the label's **minimum size hint** to the pixmap dimensions. The parent `RdpSessionContainer` fills the canvas with `setGeometry(container_rectangle)`, but `QWidget::setGeometry` honors `minimumSize()` — after the first RDPDISP cycle the canvas could not shrink (and sometimes stopped tracking the window). `RdpCanvas.resizeEvent` no longer fired on later window drags, so debounced RDPDISP requests stopped.
+
+### Why it was tricky
+
+- First resize often **grows** the window, so minimum-size clamping is invisible.
+- The failure is in Qt layout constraints, not in RDPDISP PDU encoding or aardwolf.
+- Letterbox / edge-hover symptoms look like pointer or mapping bugs but stem from stale geometry.
+
+### Fix
+
+- `RdpCanvas`: `setMinimumSize(0, 0)`, `QSizePolicy.Ignored`, `setScaledContents(False)` so pixmap size does not constrain parent geometry.
+- Move RDPDISP debounce to `RdpSessionContainer.resizeEvent` using the **container** client area size.
+
+### Prevention
+
+- [`tests/test_qt_session_geometry.py`](tests/test_qt_session_geometry.py) asserts the canvas shrinks after `setPixmap` when minimum size is zero.
+- When using `QLabel` as a framebuffer surface, never rely on implicit minimum size from pixmap content.
+
+### References
+
+- [`src/rdp_client/qt_session_window.py`](src/rdp_client/qt_session_window.py) — `RdpCanvas`, `RdpSessionContainer`
+- Qt `QLabel::minimumSizeHint()` — returns pixmap size when a pixmap is set
