@@ -464,6 +464,7 @@ class RdpDesktopConnectionFactory(aardwolf.commons.factory.RDPConnectionFactory)
         """Return a desktop connection using copied target and credential."""
 
         copied_iosettings = copy.deepcopy(iosettings)
+        copied_iosettings.vchannels = iosettings.vchannels
         credential = self.get_credential()
         target = self.get_target()
 

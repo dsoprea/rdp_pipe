@@ -129,13 +129,12 @@ class RdpAsyncSession:
         self._report_connection_progress(
             rdp_client.connection_progress.CONNECTION_STEP_PREPARING)
 
-        iosettings, display_control_channel = \
+        iosettings, _display_control_channel = \
             rdp_client.rdp_connection.build_iosettings_with_display_control(
                 self._video_width,
                 self._video_height)
 
         self._iosettings = iosettings
-        self._display_control_channel = display_control_channel
 
         connection_factory = \
             rdp_client.rdp_connection.RdpDesktopConnectionFactory.from_url(
@@ -143,6 +142,9 @@ class RdpAsyncSession:
                 self._iosettings)
 
         self._connection = connection_factory.get_connection(self._iosettings)
+        self._iosettings = self._connection.iosettings
+        self._display_control_channel = self._connection.iosettings.vchannels[
+            rdp_client.display_control.DISPLAY_CONTROL_CHANNEL_NAME]
         self._connection.display_control_channel = self._display_control_channel
         self._connection.progress_callback = self._report_connection_progress
 
