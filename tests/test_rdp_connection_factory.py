@@ -1,7 +1,23 @@
 """Unit tests for RdpDesktopConnectionFactory iosettings handling."""
 
+import aardwolf.protocol.T125.extendedinfopacket
+
 import rdp_client.display_control
 import rdp_client.rdp_connection
+
+
+def test_build_iosettings_does_not_disable_wallpaper():
+    """Client must not ask the server to omit the desktop wallpaper."""
+
+    iosettings, _display_control_channel = \
+        rdp_client.rdp_connection.build_iosettings_with_display_control(
+            1280,
+            800)
+
+    disable_wallpaper_flag = \
+        aardwolf.protocol.T125.extendedinfopacket.PERF.DISABLE_WALLPAPER
+
+    assert (iosettings.performance_flags & disable_wallpaper_flag) == 0
 
 
 def test_get_connection_preserves_display_control_channel_identity():

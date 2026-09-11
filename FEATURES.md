@@ -31,6 +31,7 @@
 - Mouse move, press, release, and wheel forwarded while the cursor is over the canvas (no mouse grab)
 - Keyboard forwarded only while the pointer is inside the canvas
 - Partial framebuffer updates from aardwolf `RDP_VIDEO` rectangles
+- Remote desktop wallpaper when the server provides it (client does not request `DISABLE_WALLPAPER` at connect)
 
 ## Seamless resize (MS-RDPEDISP)
 

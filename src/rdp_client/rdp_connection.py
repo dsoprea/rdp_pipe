@@ -493,6 +493,7 @@ def build_iosettings_with_display_control(
 
     import aardwolf.commons.iosettings
     import aardwolf.extensions.RDPECLIP.channel
+    import aardwolf.protocol.T125.extendedinfopacket
 
     iosettings = aardwolf.commons.iosettings.RDPIOSettings()
     iosettings.channels = [
@@ -503,6 +504,9 @@ def build_iosettings_with_display_control(
     iosettings.video_height = video_height
     iosettings.video_bpp_max = 32
     iosettings.video_bpp_min = 16
+    iosettings.performance_flags = (
+        iosettings.performance_flags
+        & ~aardwolf.protocol.T125.extendedinfopacket.PERF.DISABLE_WALLPAPER)
 
     display_channel = rdp_client.display_control.DisplayControlChannel(
         resolution_request_callback=resolution_request_callback)
