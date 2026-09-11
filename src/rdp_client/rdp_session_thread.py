@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sys
 import queue
 import threading
 import traceback
@@ -9,6 +10,7 @@ import traceback
 import PyQt6.QtCore
 
 import rdp_client.rdp_session_core
+import rdp_client.trust_store
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -125,6 +127,12 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
         except asyncio.CancelledError:
             return
+
+        except rdp_client.trust_store.CertificateTrustMismatchError as trust_error:
+            mismatch_stderr = \
+                rdp_client.trust_store.format_certificate_trust_mismatch_stderr(
+                    trust_error)
+            sys.stderr.write(mismatch_stderr)
 
         except Exception:
             traceback.print_exc()

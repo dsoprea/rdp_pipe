@@ -1,6 +1,7 @@
 """RDPConnection subclass with RDPDISP-oriented capability flags and buffer resize."""
 
 import copy
+import datetime
 import logging
 
 import aardwolf.commons.factory
@@ -10,6 +11,7 @@ import aardwolf.protocol.T124.userdata.constants
 import PIL.Image
 
 import rdp_client.display_control
+import rdp_client.trust_store
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,8 +91,256 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
         finally:
             _CONNECTING_DESKTOP_CONNECTION = None
 
+
+    def _get_capability_exchange_data_start_offset(self) -> int:
+        """Return the MCS payload offset when server encryption level is 1."""
+
+        import aardwolf.protocol.T124.userdata.constants
+
+        data_start_offset = 0
+
+        if self._RDPConnection__server_connect_pdu[
+                aardwolf.protocol.T124.userdata.constants.TS_UD_TYPE.SC_SECURITY].encryptionLevel == 1:
+            data_start_offset = 4
+
+        return data_start_offset
+
+    async def _await_synchronize_after_confirm_active(self, data_start_offset: int):
+        """Read MCS replies until SYNCHRONIZE, skipping MONITOR_LAYOUT_PDU."""
+
+        import aardwolf.protocol.T128.clientconfirmactivepdu
+        import aardwolf.protocol.T128.seterrorinfopdu
+        import aardwolf.protocol.T128.share
+        import aardwolf.protocol.T128.synchronizepdu
+
+        while True:
+            data, err = await self._RDPConnection__joined_channels["MCS"].out_queue.get()
+
+            if err is not None:
+                raise err
+
+            data = data[data_start_offset:]
+            share_control_header =                 aardwolf.protocol.T128.clientconfirmactivepdu.TS_SHARECONTROLHEADER.from_bytes(data)
+
+            if share_control_header.pduType != aardwolf.protocol.T128.share.PDUTYPE.DATAPDU:
+                raise Exception(
+                    "Unexpected reply! {pdu_type}".format(
+                        pdu_type=share_control_header.pduType.name))
+
+            share_data_header = aardwolf.protocol.T128.inputeventpdu.TS_SHAREDATAHEADER.from_bytes(data)
+
+            if share_data_header.pduType2 == aardwolf.protocol.T128.share.PDUTYPE2.SET_ERROR_INFO_PDU:
+                error_pdu = aardwolf.protocol.T128.seterrorinfopdu.TS_SET_ERROR_INFO_PDU.from_bytes(data)
+
+                raise Exception(
+                    "Server replied with error! Code: {code} ErrName: {error_name}".format(
+                        code=hex(error_pdu.errorInfoRaw),
+                        error_name=error_pdu.errorInfo.name))
+
+            if share_data_header.pduType2 == aardwolf.protocol.T128.share.PDUTYPE2.SYNCHRONIZE:
+                aardwolf.protocol.T128.synchronizepdu.TS_SYNCHRONIZE_PDU.from_bytes(data)
+
+                return
+
+            if share_data_header.pduType2 == aardwolf.protocol.T128.share.PDUTYPE2.MONITOR_LAYOUT_PDU:
+                continue
+
+            raise Exception(
+                "Unexpected reply! {pdu_type}".format(
+                    pdu_type=share_data_header.pduType2.name))
+
+    async def _finish_mandatory_capability_exchange_after_synchronize(self):
+        """Send client synchronize, control, and font-list PDUs after server synchronize."""
+
+        import aardwolf.protocol.T128.controlpdu
+        import aardwolf.protocol.T128.fontlistpdu
+        import aardwolf.protocol.T128.inputeventpdu
+        import aardwolf.protocol.T128.security
+        import aardwolf.protocol.T128.share
+        import aardwolf.protocol.T128.synchronizepdu
+
+        data_header = aardwolf.protocol.T128.inputeventpdu.TS_SHAREDATAHEADER()
+        data_header.shareID = 0x103EA
+        data_header.streamID = aardwolf.protocol.T128.share.STREAM_TYPE.MED
+        data_header.pduType2 = aardwolf.protocol.T128.share.PDUTYPE2.SYNCHRONIZE
+
+        client_synchronize_pdu = aardwolf.protocol.T128.synchronizepdu.TS_SYNCHRONIZE_PDU()
+        client_synchronize_pdu.targetUser = self._RDPConnection__joined_channels["MCS"].channel_id
+
+        security_header = None
+
+        if self.cryptolayer is not None:
+            security_header = aardwolf.protocol.T128.security.TS_SECURITY_HEADER()
+            security_header.flags = aardwolf.protocol.T128.security.SEC_HDR_FLAG.ENCRYPT
+            security_header.flagsHi = 0
+
+        await self.handle_out_data(
+            client_synchronize_pdu,
+            security_header,
+            data_header,
+            None,
+            self._RDPConnection__joined_channels["MCS"].channel_id,
+            False)
+
+        data_header = aardwolf.protocol.T128.inputeventpdu.TS_SHAREDATAHEADER()
+        data_header.shareID = 0x103EA
+        data_header.streamID = aardwolf.protocol.T128.share.STREAM_TYPE.MED
+        data_header.pduType2 = aardwolf.protocol.T128.share.PDUTYPE2.CONTROL
+
+        client_control_pdu = aardwolf.protocol.T128.controlpdu.TS_CONTROL_PDU()
+        client_control_pdu.action = aardwolf.protocol.T128.controlpdu.CTRLACTION.COOPERATE
+        client_control_pdu.grantId = 0
+        client_control_pdu.controlId = 0
+
+        security_header = None
+
+        if self.cryptolayer is not None:
+            security_header = aardwolf.protocol.T128.security.TS_SECURITY_HEADER()
+            security_header.flags = aardwolf.protocol.T128.security.SEC_HDR_FLAG.ENCRYPT
+            security_header.flagsHi = 0
+
+        await self.handle_out_data(
+            client_control_pdu,
+            security_header,
+            data_header,
+            None,
+            self._RDPConnection__joined_channels["MCS"].channel_id,
+            False)
+
+        data_header = aardwolf.protocol.T128.inputeventpdu.TS_SHAREDATAHEADER()
+        data_header.shareID = 0x103EA
+        data_header.streamID = aardwolf.protocol.T128.share.STREAM_TYPE.MED
+        data_header.pduType2 = aardwolf.protocol.T128.share.PDUTYPE2.CONTROL
+
+        client_control_pdu = aardwolf.protocol.T128.controlpdu.TS_CONTROL_PDU()
+        client_control_pdu.action = aardwolf.protocol.T128.controlpdu.CTRLACTION.REQUEST_CONTROL
+        client_control_pdu.grantId = 0
+        client_control_pdu.controlId = 0
+
+        security_header = None
+
+        if self.cryptolayer is not None:
+            security_header = aardwolf.protocol.T128.security.TS_SECURITY_HEADER()
+            security_header.flags = aardwolf.protocol.T128.security.SEC_HDR_FLAG.ENCRYPT
+            security_header.flagsHi = 0
+
+        await self.handle_out_data(
+            client_control_pdu,
+            security_header,
+            data_header,
+            None,
+            self._RDPConnection__joined_channels["MCS"].channel_id,
+            False)
+
+        data_header = aardwolf.protocol.T128.inputeventpdu.TS_SHAREDATAHEADER()
+        data_header.shareID = 0x103EA
+        data_header.streamID = aardwolf.protocol.T128.share.STREAM_TYPE.MED
+        data_header.pduType2 = aardwolf.protocol.T128.share.PDUTYPE2.FONTLIST
+
+        client_font_list_pdu = aardwolf.protocol.T128.fontlistpdu.TS_FONT_LIST_PDU()
+
+        security_header = None
+
+        if self.cryptolayer is not None:
+            security_header = aardwolf.protocol.T128.security.TS_SECURITY_HEADER()
+            security_header.flags = aardwolf.protocol.T128.security.SEC_HDR_FLAG.ENCRYPT
+            security_header.flagsHi = 0
+
+        await self.handle_out_data(
+            client_font_list_pdu,
+            security_header,
+            data_header,
+            None,
+            self._RDPConnection__joined_channels["MCS"].channel_id,
+            False)
+
+    async def _RDPConnection__handle_mandatory_capability_exchange(self):
+        """Handle capability exchange, skipping MONITOR_LAYOUT_PDU before synchronize."""
+
+        exchange_ok, exchange_error =             await aardwolf.connection.RDPConnection._RDPConnection__handle_mandatory_capability_exchange(
+                self)
+
+        if exchange_error is None:
+            return exchange_ok, exchange_error
+
+        if "MONITOR_LAYOUT_PDU" not in str(exchange_error):
+            return exchange_ok, exchange_error
+
+        try:
+            data_start_offset = self._get_capability_exchange_data_start_offset()
+
+            await self._await_synchronize_after_confirm_active(data_start_offset)
+            await self._finish_mandatory_capability_exchange_after_synchronize()
+
+            return True, None
+
+        except Exception as recovery_error:
+            return None, recovery_error
+
+
+    def _build_certificate_trust_metadata(self) -> dict:
+        """Build metadata persisted alongside the server TLS certificate."""
+
+        metadata = {
+            "first_seen": datetime.datetime.now(datetime.UTC).isoformat(),
+            "remote_ip": self.target.ip,
+            "port": self.target.port,
+        }
+
+        if self.target.hostname is not None:
+            metadata["hostname"] = self.target.hostname
+
+        if self.target.domain is not None:
+            metadata["domain"] = self.target.domain
+
+        metadata["spn"] = self.target.to_target_string()
+
+        return metadata
+
+    async def credssp_auth(self):
+        """Verify or accept the server TLS certificate before CredSSP authentication."""
+
+        transport_connection = self._RDPConnection__connection
+        peer_certificate = transport_connection.get_peer_certificate()
+
+        if peer_certificate is None:
+            raise ValueError(
+                "TLS peer certificate missing during CredSSP for {remote_ip}".format(
+                    remote_ip=self.target.ip))
+
+        remote_ip = self.target.ip
+        if remote_ip is None:
+            raise ValueError("remote IP missing on RDP target during certificate trust check")
+
+        trust_metadata = self._build_certificate_trust_metadata()
+
+        rdp_client.trust_store.verify_or_accept_server_certificate(
+            remote_ip,
+            peer_certificate,
+            trust_metadata)
+
+        return await aardwolf.connection.RDPConnection.credssp_auth(self)
+
+
+
 class RdpDesktopConnectionFactory(aardwolf.commons.factory.RDPConnectionFactory):
     """Factory that builds RdpDesktopConnection instead of the stock RDPConnection."""
+
+    @staticmethod
+    def from_url(connection_url, iosettings):
+        """Build a desktop factory from an aardwolf connection URL."""
+
+        import asyauth.common.credentials
+        import aardwolf.commons.target
+
+        target = aardwolf.commons.target.RDPTarget.from_url(connection_url)
+        credential = asyauth.common.credentials.UniCredential.from_url(connection_url)
+
+        return RdpDesktopConnectionFactory(
+            iosettings,
+            target,
+            credential)
+
 
     def get_connection(self, iosettings):
         """Return a desktop connection using copied target and credential."""

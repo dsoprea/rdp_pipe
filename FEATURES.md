@@ -37,6 +37,15 @@
 - Reallocates local desktop buffer when the server changes session geometry
 - Falls back to letterboxing when the server does not send RDPDISP caps (warning logged once)
 
+
+## Server certificate trust (TOFU)
+
+- TLS server certificates stored under `~/.config/rdpipe/` during NLA/CredSSP connect
+- First connection to an IP auto-accepts the presented certificate (trust on first use)
+- Repeat connections require the same SHA-256 certificate fingerprint for that IP
+- Fingerprint mismatch aborts connect and prints remediation paths on stderr (remove `clients/<ip>` to re-trust)
+- Certificate PEM, remote IP, and JSON metadata stored per fingerprint under `certificates/<fingerprint>/`
+
 ## Authentication scope
 
 - NLA / CredSSP with NTLM password URLs (`rdp+ntlm-password://`)

@@ -31,6 +31,24 @@ GUI mode (default) opens a PyQt6 window. `--headless` runs without a display and
 .venv/bin/rdp_connect 10.0.0.5
 ```
 
+
+### Server certificate trust
+
+On NLA connect, the client stores the server TLS certificate under `~/.config/rdpipe/`:
+
+- `clients/<ip>` — one-line file mapping the remote IP to a certificate fingerprint
+- `certificates/<fingerprint>/` — `certificate` (PEM), `ip`, and `metadata` (JSON)
+
+The first connection to an IP is accepted automatically. If the server later presents a different certificate for the same IP, the client refuses to connect and prints paths to remove, for example:
+
+```text
+~/.config/rdpipe/clients/10.0.0.5
+~/.config/rdpipe/certificates/<old-fingerprint>/
+```
+
+Remove the `clients/<ip>` file to trust a new certificate on the next connect. IPv6 addresses use underscores instead of colons in client filenames (e.g. `2001_db8__1`).
+
+
 ### Password resolution
 
 Passwords are resolved in order (first match wins):
