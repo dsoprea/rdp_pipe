@@ -32,7 +32,8 @@ CONNECTING_OVERLAY_PANEL_BACKGROUND = "#2b2b2b"
 
 DEFAULT_WINDOW_WIDTH = 1280
 DEFAULT_WINDOW_HEIGHT = 800
-SESSION_SHUTDOWN_TIMEOUT_SECONDS = 5.0
+SESSION_SHUTDOWN_TIMEOUT_SECONDS = 3.0
+WORKER_THREAD_SHUTDOWN_WAIT_MILLISECONDS = 500
 RESIZE_DEBOUNCE_MILLISECONDS = 250
 MOUSE_POINTER_DEBUG_INTERVAL_SECONDS = 0.5
 DEFAULT_SUPPRESS_SECONDS_AFTER_BITMAP = 0.1
@@ -212,6 +213,75 @@ class RdpConnectingOverlay(PyQt6.QtWidgets.QWidget):
         super().resizeEvent(resize_event)
 
 
+class RdpShuttingDownOverlay(PyQt6.QtWidgets.QWidget):
+    """Dimmed full-window overlay with a centered shutting-down modal."""
+
+    def __init__(self, parent=None):
+        """Create the overlay panel and indeterminate progress bar."""
+
+        super().__init__(parent)
+
+        self.setAttribute(PyQt6.QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet("background-color: rgba(0, 0, 0, 170);")
+
+        self._panel = PyQt6.QtWidgets.QFrame(self)
+        self._panel.setObjectName("shuttingDownPanel")
+        self._panel.setStyleSheet(
+            "#shuttingDownPanel {{"
+            "background-color: {panel_background};"
+            "border: 1px solid #3c4043;"
+            "border-radius: 12px;"
+            "}}".format(panel_background=CONNECTING_OVERLAY_PANEL_BACKGROUND))
+
+        self._title_label = PyQt6.QtWidgets.QLabel("Shutting down", self._panel)
+        self._title_label.setStyleSheet(
+            "background-color: transparent;"
+            "color: #ffffff; font-size: 18px; font-weight: 600;")
+
+        self._progress_bar = PyQt6.QtWidgets.QProgressBar(self._panel)
+        self._progress_bar.setRange(0, 0)
+        self._progress_bar.setTextVisible(False)
+        self._progress_bar.setFixedHeight(4)
+        self._progress_bar.setStyleSheet(
+            "QProgressBar {"
+            "background-color: #1f1f1f;"
+            "border: none;"
+            "border-radius: 2px;"
+            "}"
+            "QProgressBar::chunk {"
+            "background-color: #8ab4f8;"
+            "border-radius: 2px;"
+            "}")
+
+        panel_layout = PyQt6.QtWidgets.QVBoxLayout(self._panel)
+        panel_layout.setContentsMargins(
+            CONNECTING_OVERLAY_PANEL_MARGIN,
+            CONNECTING_OVERLAY_PANEL_MARGIN,
+            CONNECTING_OVERLAY_PANEL_MARGIN,
+            CONNECTING_OVERLAY_PANEL_MARGIN)
+        panel_layout.setSpacing(16)
+        panel_layout.addWidget(self._title_label)
+        panel_layout.addWidget(self._progress_bar)
+
+        self.hide()
+
+    def resizeEvent(self, resize_event: PyQt6.QtGui.QResizeEvent):
+        """Keep the modal panel centered over the dimmed overlay."""
+
+        panel_width = CONNECTING_OVERLAY_PANEL_WIDTH
+        panel_height = self._panel.sizeHint().height()
+        origin_x = int((self.width() - panel_width) / 2)
+        origin_y = int((self.height() - panel_height) / 2)
+
+        if origin_x < 0:
+            origin_x = 0
+        if origin_y < 0:
+            origin_y = 0
+
+        self._panel.setGeometry(origin_x, origin_y, panel_width, panel_height)
+        super().resizeEvent(resize_event)
+
+
 def build_cursor_pixmap_from_rgba_image(image: PIL.Image.Image) -> PyQt6.QtGui.QPixmap:
     """Build a Qt pixmap with alpha suitable for overlay cursor painting."""
 
@@ -301,6 +371,7 @@ class RdpSessionContainer(PyQt6.QtWidgets.QWidget):
         self.setMinimumSize(0, 0)
         self._canvas = RdpCanvas(self)
         self._connecting_overlay = RdpConnectingOverlay(self)
+        self._shutting_down_overlay = RdpShuttingDownOverlay(self)
         self._resize_debounce_timer = PyQt6.QtCore.QTimer(self)
         self._resize_debounce_timer.setSingleShot(True)
         self._resize_debounce_timer.setInterval(RESIZE_DEBOUNCE_MILLISECONDS)
@@ -320,12 +391,19 @@ class RdpSessionContainer(PyQt6.QtWidgets.QWidget):
 
         return self._connecting_overlay
 
+    @property
+    def shutting_down_overlay(self) -> RdpShuttingDownOverlay:
+        """Return the shutting-down progress overlay."""
+
+        return self._shutting_down_overlay
+
     def resizeEvent(self, resize_event: PyQt6.QtGui.QResizeEvent):
         """Resize children to fill the container and debounce RDPDISP requests."""
 
         container_rectangle = self.rect()
         self._canvas.setGeometry(container_rectangle)
         self._connecting_overlay.setGeometry(container_rectangle)
+        self._shutting_down_overlay.setGeometry(container_rectangle)
 
         self._pending_resize_width = container_rectangle.width()
         self._pending_resize_height = container_rectangle.height()
@@ -900,6 +978,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._session_container = RdpSessionContainer(self)
         self._canvas = self._session_container.canvas
         self._connecting_overlay = self._session_container.connecting_overlay
+        self._shutting_down_overlay = self._session_container.shutting_down_overlay
 
         self._canvas.set_input_queue(self._input_queue)
         self._canvas.set_remote_dimensions(video_width, video_height)
@@ -1059,6 +1138,70 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
         self._shutdown_session_resources()
 
+    def _show_shutting_down_overlay(self):
+        """Display the shutting-down modal above the session canvas."""
+
+        self._shutting_down_overlay.show()
+        self._shutting_down_overlay.raise_()
+
+        application = PyQt6.QtWidgets.QApplication.instance()
+        application.processEvents()
+
+    def _wait_for_worker_shutdown_with_responsive_ui(self, timeout_seconds: float) -> bool:
+        """Block until the asyncio worker thread exits while pumping Qt events."""
+
+        application = PyQt6.QtWidgets.QApplication.instance()
+        deadline = time.monotonic() + timeout_seconds
+        async_thread = self._worker._async_thread
+
+        if async_thread is None:
+            return True
+
+        while async_thread.is_alive():
+
+            remaining_seconds = deadline - time.monotonic()
+
+            if remaining_seconds <= 0:
+                return self._worker.wait_for_shutdown(0.0)
+
+            application.processEvents(
+                PyQt6.QtCore.QEventLoop.ProcessEventsFlag.AllEvents,
+                50)
+
+            join_timeout_seconds = min(remaining_seconds, 0.05)
+            async_thread.join(join_timeout_seconds)
+
+        return True
+
+    def _wait_for_qthread_with_responsive_ui(
+            self,
+            qthread: PyQt6.QtCore.QThread,
+            wait_milliseconds: int) -> bool:
+        """Block until a QThread exits while pumping Qt events."""
+
+        application = PyQt6.QtWidgets.QApplication.instance()
+        deadline = time.monotonic() + (wait_milliseconds / 1000.0)
+
+        while qthread.isRunning():
+
+            remaining_seconds = deadline - time.monotonic()
+
+            if remaining_seconds <= 0:
+                return False
+
+            application.processEvents(
+                PyQt6.QtCore.QEventLoop.ProcessEventsFlag.AllEvents,
+                50)
+
+            wait_slice_milliseconds = int(min(remaining_seconds, 0.05) * 1000)
+
+            if wait_slice_milliseconds < 1:
+                wait_slice_milliseconds = 1
+
+            qthread.wait(wait_slice_milliseconds)
+
+        return True
+
     def _shutdown_session_resources(self):
         """Stop automation, disconnect RDP, and join background worker threads."""
 
@@ -1067,14 +1210,19 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
         self._shutdown_started = True
 
+        self._show_shutting_down_overlay()
+
         if self._command_server is not None:
             self._command_server.stop()
 
         self._input_queue.put(None)
         self._worker.stop()
-        self._worker.wait_for_shutdown(SESSION_SHUTDOWN_TIMEOUT_SECONDS)
+        self._wait_for_worker_shutdown_with_responsive_ui(
+            SESSION_SHUTDOWN_TIMEOUT_SECONDS)
         self._worker_thread.quit()
-        self._worker_thread.wait(2000)
+        self._wait_for_qthread_with_responsive_ui(
+            self._worker_thread,
+            WORKER_THREAD_SHUTDOWN_WAIT_MILLISECONDS)
 
     def closeEvent(self, close_event: PyQt6.QtGui.QCloseEvent):
         """Shut down input forwarding and wait for the RDP session to disconnect."""

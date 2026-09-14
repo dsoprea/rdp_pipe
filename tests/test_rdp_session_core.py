@@ -183,6 +183,21 @@ async def test_handle_send_key_enqueues_keyboard_messages(connected_session):
     assert first_message.type == aardwolf.commons.queuedata.RDPDATATYPE.KEYUNICODE
 
 
+async def test_run_until_stopped_exits_when_stop_event_set_without_queue_items(
+        connected_session):
+    """stop() must unblock run_until_stopped even when ext_out_queue is empty."""
+
+    drain_task = asyncio.create_task(connected_session.run_until_stopped())
+
+    await asyncio.sleep(0.05)
+
+    stop_task = asyncio.create_task(connected_session.stop())
+
+    await asyncio.wait_for(
+        asyncio.gather(drain_task, stop_task),
+        timeout=2.0)
+
+
 async def test_run_until_stopped_emits_video_frames(connected_session):
     """VIDEO queue items invoke registered video frame callbacks."""
 

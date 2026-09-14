@@ -83,6 +83,57 @@ def test_wait_for_shutdown_joins_async_thread():
     assert worker._async_thread.is_alive() is False
 
 
+def test_shutdown_shows_shutting_down_overlay(qt_application):
+    """Shutdown displays the shutting-down modal while tearing down resources."""
+
+    session_container = rdp_client.qt_session_window.RdpSessionContainer()
+    session_window = rdp_client.qt_session_window.RdpSessionWindow.__new__(
+        rdp_client.qt_session_window.RdpSessionWindow)
+    session_window._shutdown_started = False
+    session_window._command_server = None
+    session_window._input_queue = queue.Queue()
+    session_window._shutting_down_overlay = session_container.shutting_down_overlay
+    session_window._worker = unittest.mock.Mock()
+    session_window._worker._async_thread = None
+    session_window._worker_thread = unittest.mock.Mock()
+    session_window._worker_thread.isRunning.return_value = False
+
+    session_container.show()
+    qt_application.processEvents()
+
+    session_window._shutdown_session_resources()
+
+    assert session_container.shutting_down_overlay.isVisible() is True
+    session_window._worker.stop.assert_called_once()
+
+
+def test_wait_for_shutdown_pumps_qt_events(qt_application):
+    """Responsive shutdown wait processes Qt events while the worker thread lives."""
+
+    session_window = rdp_client.qt_session_window.RdpSessionWindow.__new__(
+        rdp_client.qt_session_window.RdpSessionWindow)
+    session_window._worker = unittest.mock.Mock()
+
+    alive_thread = unittest.mock.Mock()
+    alive_thread.is_alive.side_effect = [True, False]
+    alive_thread.join = unittest.mock.Mock()
+    session_window._worker._async_thread = alive_thread
+
+    application = unittest.mock.Mock()
+    application.processEvents = unittest.mock.Mock()
+
+    with unittest.mock.patch.object(
+            rdp_client.qt_session_window.PyQt6.QtWidgets.QApplication,
+            "instance",
+            unittest.mock.Mock(return_value=application)):
+
+        shutdown_finished = session_window._wait_for_worker_shutdown_with_responsive_ui(
+            1.0)
+
+    assert shutdown_finished is True
+    application.processEvents.assert_called()
+
+
 def test_close_event_calls_wait_for_shutdown(qt_application):
     """Closing the window waits for the RDP session to disconnect."""
 
@@ -91,20 +142,27 @@ def test_close_event_calls_wait_for_shutdown(qt_application):
     session_window._shutdown_started = False
     session_window._command_server = None
     session_window._input_queue = queue.Queue()
+    session_window._shutting_down_overlay = unittest.mock.Mock()
     session_window._worker = unittest.mock.Mock()
     session_window._worker_thread = unittest.mock.Mock()
+    session_window._worker_thread.isRunning.return_value = False
 
     close_event = unittest.mock.Mock()
 
     with unittest.mock.patch.object(
-            rdp_client.qt_session_window.PyQt6.QtWidgets.QMainWindow,
-            "closeEvent",
-            unittest.mock.Mock()) as main_window_close_event:
+            rdp_client.qt_session_window.RdpSessionWindow,
+            "_wait_for_worker_shutdown_with_responsive_ui",
+            unittest.mock.Mock()) as wait_for_shutdown_with_ui:
 
-        session_window.closeEvent(close_event)
+        with unittest.mock.patch.object(
+                rdp_client.qt_session_window.PyQt6.QtWidgets.QMainWindow,
+                "closeEvent",
+                unittest.mock.Mock()) as main_window_close_event:
+
+            session_window.closeEvent(close_event)
 
     session_window._worker.stop.assert_called_once()
-    session_window._worker.wait_for_shutdown.assert_called_once_with(
+    wait_for_shutdown_with_ui.assert_called_once_with(
         rdp_client.qt_session_window.SESSION_SHUTDOWN_TIMEOUT_SECONDS)
     main_window_close_event.assert_called_once_with(close_event)
 

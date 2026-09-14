@@ -235,7 +235,27 @@ class RdpAsyncSession:
         """Drain ext_out_queue until stop() or disconnect."""
 
         while not self._stop_event.is_set():
-            output_item = await self._connection.ext_out_queue.get()
+
+            queue_get_task = asyncio.create_task(self._connection.ext_out_queue.get())
+            stop_wait_task = asyncio.create_task(self._stop_event.wait())
+            done_tasks, pending_tasks = await asyncio.wait(
+                [queue_get_task, stop_wait_task],
+                return_when=asyncio.FIRST_COMPLETED)
+
+            for pending_task in pending_tasks:
+                pending_task.cancel()
+
+                try:
+                    await pending_task
+
+                except asyncio.CancelledError:
+                    pass
+
+            if self._stop_event.is_set():
+                return
+
+            output_item = queue_get_task.result()
+
             if output_item is None:
                 return
 
