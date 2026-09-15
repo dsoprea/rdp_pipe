@@ -66,6 +66,29 @@ aardwolf `send_disconnect()` can also block on `MCS.out_queue.get()` during an i
 - [`src/rdp_client/rdp_session_thread.py`](src/rdp_client/rdp_session_thread.py)
 - [`src/rdp_client/rdp_connection.py`](src/rdp_client/rdp_connection.py)
 
+## Cursor invert pixels lost on some backgrounds (RDP Qt client)
+
+### Symptom
+
+Remote cursor shape and position were correct, but parts of the pointer (I-beam outline, default-arrow XOR regions) were visible on some desktop colors and disappeared on others — e.g. white cursor fragments on white wallpaper.
+
+### Root cause
+
+MS-RDPBCGR **inverted** pointer pixels (monochrome AND=1 XOR=1; color AND=1 with white XOR) must be drawn as **`255 - destination_rgb`** against the live framebuffer. The decoder baked a **static black/white checkerboard** via `_build_inverted_pointer_rgba` and the Qt overlay painted that pixmap with `SourceOver`, so contrast depended on luck, not the desktop under the cursor.
+
+### Fix
+
+- Decode invert bits into a separate **`invert_mask_image`** on `RdpPointerUpdate` (`pointer_update.py`).
+- **`RdpRemoteCursorOverlay.paintEvent`** samples the letterboxed canvas `QImage` under each invert pixel and composites with `build_composited_pointer_rgba_image`.
+- Repaint the overlay on each video frame when a bitmap pointer is active so inversion tracks desktop updates under a stationary cursor.
+
+### Prevention
+
+- Unit tests: `test_build_pointer_images_marks_monochrome_invert_pixels`, `test_build_composited_pointer_inverts_*_background_*` in `tests/test_pointer_update.py`.
+- Do not substitute checkerboard patterns for invert-mask pixels in decode paths.
+- 1-bpp AND/XOR bit tests must use `(byte & mask) != 0`, not `>> 7` with a shifting mask — the second bit in a byte was always decoded as 0, garbling I-beam/resize cursors.
+- Ignore orphan `PTR_DEFAULT` before any bitmap pointer is cached; keep `BlankCursor` instead of `unsetCursor()` when clearing the overlay so the system busy spinner does not flash.
+
 ## Remote cursor shape mirroring (RDP Qt client)
 
 ### Symptom

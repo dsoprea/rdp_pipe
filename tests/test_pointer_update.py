@@ -92,8 +92,8 @@ def test_build_rgba_image_from_32bpp_masks_respects_alpha_channel():
     assert rgba_image.getpixel((1, 0)) == (0, 0, 0, 0)
 
 
-def test_build_rgba_image_from_monochrome_masks_uses_bottom_up_scanlines():
-    """1-bpp monochrome pointers are read bottom-up like color pointers."""
+def test_build_rgba_image_from_monochrome_masks_uses_top_down_scanlines():
+    """1-bpp monochrome pointers are read top-down (color pointers are bottom-up)."""
 
     xor_mask_data = bytes([
         0b00000000,
@@ -113,8 +113,8 @@ def test_build_rgba_image_from_monochrome_masks_uses_bottom_up_scanlines():
         xor_mask_data,
         and_mask_data)
 
-    assert rgba_image.getpixel((0, 0)) == (255, 255, 255, 255)
-    assert rgba_image.getpixel((0, 1)) == (0, 0, 0, 255)
+    assert rgba_image.getpixel((0, 0)) == (0, 0, 0, 255)
+    assert rgba_image.getpixel((0, 1)) == (255, 255, 255, 255)
 
 
 def test_build_rgba_image_from_color_masks_uses_bottom_up_xor_scanlines():
@@ -233,10 +233,10 @@ def test_extract_pointer_mask_bytes_corrects_aardwolf_swapped_masks():
     assert corrected_and == and_mask_data
 
 
-def test_fixup_monochrome_beam_pointer_masks_makes_inverted_and_opaque():
-    """Beam/resize cursors with all AND bits set decode to visible pixels after fixup."""
+def test_monochrome_beam_pointer_with_all_and_bits_set_uses_invert_mask():
+    """I-beam/resize cursors with every AND bit set decode to framebuffer-invert pixels."""
 
-    # Bottom-up 2x2 XOR pattern with every AND bit set (normally fully transparent).
+    # Top-down 2x2 XOR pattern with every AND bit set.
     xor_mask_data = bytes([
         0b00000000,
         0b00000000,
@@ -250,15 +250,83 @@ def test_fixup_monochrome_beam_pointer_masks_makes_inverted_and_opaque():
         0xFF,
     ])
 
-    rgba_image = rdp_client.pointer_update.build_rgba_image_from_pointer_masks(
-        2,
-        2,
-        1,
-        xor_mask_data,
-        and_mask_data)
+    rgba_image, invert_mask_image = \
+        rdp_client.pointer_update.build_pointer_images_from_pointer_masks(
+            2,
+            2,
+            1,
+            xor_mask_data,
+            and_mask_data)
 
-    assert rgba_image.getpixel((0, 0))[3] > 0
-    assert rgba_image.getpixel((1, 0))[3] > 0
+    assert rgba_image.getpixel((0, 1)) == (0, 0, 0, 0)
+    assert invert_mask_image.getpixel((0, 1)) == 255
+    assert invert_mask_image.getpixel((1, 1)) == 255
+    assert rdp_client.pointer_update.pointer_image_has_visible_pixels(
+        rgba_image,
+        invert_mask_image)
+
+
+def test_build_pointer_images_marks_monochrome_invert_pixels():
+    """1x1 AND=1 XOR=1 decodes to transparent RGBA with the invert mask set."""
+
+    rgba_image, invert_mask_image = \
+        rdp_client.pointer_update.build_pointer_images_from_pointer_masks(
+            1,
+            1,
+            1,
+            b"\x80",
+            b"\x80")
+
+    assert rgba_image.getpixel((0, 0)) == (0, 0, 0, 0)
+    assert invert_mask_image.getpixel((0, 0)) == 255
+
+
+def test_build_composited_pointer_inverts_white_background_to_black():
+    """Framebuffer inversion over white yields black cursor pixels."""
+
+    rgba_image, invert_mask_image = \
+        rdp_client.pointer_update.build_pointer_images_from_pointer_masks(
+            1,
+            1,
+            1,
+            b"\x80",
+            b"\x80")
+
+    def sample_white_background(widget_x: int, widget_y: int):
+        return 255, 255, 255
+
+    composited_image = rdp_client.pointer_update.build_composited_pointer_rgba_image(
+        rgba_image,
+        invert_mask_image,
+        0,
+        0,
+        sample_white_background)
+
+    assert composited_image.getpixel((0, 0)) == (0, 0, 0, 255)
+
+
+def test_build_composited_pointer_inverts_black_background_to_white():
+    """Framebuffer inversion over black yields white cursor pixels."""
+
+    rgba_image, invert_mask_image = \
+        rdp_client.pointer_update.build_pointer_images_from_pointer_masks(
+            1,
+            1,
+            1,
+            b"\x80",
+            b"\x80")
+
+    def sample_black_background(widget_x: int, widget_y: int):
+        return 0, 0, 0
+
+    composited_image = rdp_client.pointer_update.build_composited_pointer_rgba_image(
+        rgba_image,
+        invert_mask_image,
+        0,
+        0,
+        sample_black_background)
+
+    assert composited_image.getpixel((0, 0)) == (255, 255, 255, 255)
 
 
 def test_parse_color_pointer_update_data_reads_xor_before_and():

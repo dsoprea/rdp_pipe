@@ -24,9 +24,10 @@ class RdpPointerUpdate:
             hotspot_y: int = 0,
             image: PIL.Image.Image | None = None,
             cache_index: int | None = None,
-            xor_bits_per_pixel: int | None = None):
+            xor_bits_per_pixel: int | None = None,
+            invert_mask_image: PIL.Image.Image | None = None):
 
-        """Store pointer kind, hotspot, and optional RGBA bitmap."""
+        """Store pointer kind, hotspot, RGBA bitmap, and optional invert mask."""
 
         self.kind = kind
         self.hotspot_x = hotspot_x
@@ -34,6 +35,7 @@ class RdpPointerUpdate:
         self.image = image
         self.cache_index = cache_index
         self.xor_bits_per_pixel = xor_bits_per_pixel
+        self.invert_mask_image = invert_mask_image
 
     @staticmethod
     def build_default() -> RdpPointerUpdate:
@@ -53,7 +55,8 @@ class RdpPointerUpdate:
             hotspot_y: int,
             image: PIL.Image.Image,
             cache_index: int | None = None,
-            xor_bits_per_pixel: int | None = None) -> RdpPointerUpdate:
+            xor_bits_per_pixel: int | None = None,
+            invert_mask_image: PIL.Image.Image | None = None) -> RdpPointerUpdate:
 
         """Return an update that sets a custom bitmap cursor."""
 
@@ -63,7 +66,8 @@ class RdpPointerUpdate:
             hotspot_y=hotspot_y,
             image=image,
             cache_index=cache_index,
-            xor_bits_per_pixel=xor_bits_per_pixel)
+            xor_bits_per_pixel=xor_bits_per_pixel,
+            invert_mask_image=invert_mask_image)
 
 
 class RdpPointerCache:
@@ -283,15 +287,6 @@ def compute_xor_scanline_byte_count(width: int, xor_bits_per_pixel: int) -> int:
     return scanline_byte_count
 
 
-def _build_inverted_pointer_rgba(red: int, green: int, blue: int, x_position: int, y_position: int):
-    """Return RGBA for inverted pointer pixels (checkerboard substitute)."""
-
-    if (x_position + y_position) % 2 == 0:
-        return red, green, blue, 255
-
-    return 255 - red, 255 - green, 255 - blue, 255
-
-
 def build_rgba_image_from_pointer_masks(
         width: int,
         height: int,
@@ -301,21 +296,37 @@ def build_rgba_image_from_pointer_masks(
 
     """Decode MS-RDPBCGR xor/and pointer masks into a top-down RGBA image."""
 
-    if xor_bits_per_pixel == 1:
-        xor_mask_data, and_mask_data = fixup_monochrome_beam_pointer_masks(
-            width,
-            height,
-            xor_mask_data,
-            and_mask_data)
+    rgba_image, _invert_mask_image = build_pointer_images_from_pointer_masks(
+        width,
+        height,
+        xor_bits_per_pixel,
+        xor_mask_data,
+        and_mask_data)
+
+    return rgba_image
+
+
+def build_pointer_images_from_pointer_masks(
+        width: int,
+        height: int,
+        xor_bits_per_pixel: int,
+        xor_mask_data: bytes,
+        and_mask_data: bytes) -> tuple[PIL.Image.Image, PIL.Image.Image]:
+
+    """Decode MS-RDPBCGR xor/and masks into RGBA and an invert mask for compositing."""
 
     rgba_pixels = []
+    invert_pixels = []
     and_scanline_byte_count = compute_and_scanline_byte_count(width)
     xor_scanline_byte_count = compute_xor_scanline_byte_count(width, xor_bits_per_pixel)
     xor_bytes_per_pixel = xor_bits_per_pixel // 8
 
     for y_position in range(height):
-        # MS-RDPBCGR sends xor/and scanlines bottom-up for all pointer depths.
-        source_y_position = height - y_position - 1
+        # Color xor/and scanlines are bottom-up; 1-bpp monochrome is top-down (ironrdp/MS).
+        if xor_bits_per_pixel == 1:
+            source_y_position = y_position
+        else:
+            source_y_position = height - y_position - 1
         and_scanline_offset = source_y_position * and_scanline_byte_count
         xor_scanline_offset = source_y_position * xor_scanline_byte_count
         and_bit_mask = 0x80
@@ -326,7 +337,7 @@ def build_rgba_image_from_pointer_masks(
         for x_position in range(width):
             and_pixel = 0
             if and_mask_data is not None and len(and_mask_data) > 0:
-                and_pixel = (and_mask_data[and_byte_index] & and_bit_mask) >> 7
+                and_pixel = 1 if (and_mask_data[and_byte_index] & and_bit_mask) else 0
                 and_bit_mask = and_bit_mask >> 1
                 if and_bit_mask == 0:
                     and_bit_mask = 0x80
@@ -336,9 +347,10 @@ def build_rgba_image_from_pointer_masks(
             green = 0
             blue = 0
             alpha = 255
+            invert_pixel = 0
 
             if xor_bits_per_pixel == 1:
-                xor_pixel = (xor_mask_data[xor_byte_index] & xor_bit_mask) >> 7
+                xor_pixel = 1 if (xor_mask_data[xor_byte_index] & xor_bit_mask) else 0
                 xor_bit_mask = xor_bit_mask >> 1
                 if xor_bit_mask == 0:
                     xor_bit_mask = 0x80
@@ -351,8 +363,8 @@ def build_rgba_image_from_pointer_masks(
                 elif and_pixel == 1 and xor_pixel == 0:
                     alpha = 0
                 else:
-                    red, green, blue, alpha = \
-                        _build_inverted_pointer_rgba(0, 0, 0, x_position, y_position)
+                    alpha = 0
+                    invert_pixel = 255
 
             else:
                 color_offset = xor_byte_index
@@ -388,15 +400,15 @@ def build_rgba_image_from_pointer_masks(
                         if argb_color_value == 0xFF000000:
                             alpha = 0
                         elif argb_color_value == 0xFFFFFFFF:
-                            red, green, blue, alpha = \
-                                _build_inverted_pointer_rgba(red, green, blue, x_position, y_position)
+                            alpha = 0
+                            invert_pixel = 255
                         else:
                             alpha = 0
                     elif red == 0 and green == 0 and blue == 0:
                         alpha = 0
                     elif red == 255 and green == 255 and blue == 255:
-                        red, green, blue, alpha = \
-                            _build_inverted_pointer_rgba(red, green, blue, x_position, y_position)
+                        alpha = 0
+                        invert_pixel = 255
                     else:
                         alpha = 0
                 elif xor_bits_per_pixel != 32:
@@ -405,11 +417,15 @@ def build_rgba_image_from_pointer_masks(
                 xor_byte_index = xor_byte_index + xor_bytes_per_pixel
 
             rgba_pixels.append((red, green, blue, alpha))
+            invert_pixels.append(invert_pixel)
 
-    image = PIL.Image.new("RGBA", (width, height))
-    image.putdata(rgba_pixels)
+    rgba_image = PIL.Image.new("RGBA", (width, height))
+    rgba_image.putdata(rgba_pixels)
 
-    return image
+    invert_mask_image = PIL.Image.new("L", (width, height))
+    invert_mask_image.putdata(invert_pixels)
+
+    return rgba_image, invert_mask_image
 
 
 def fixup_24bpp_rgba_image_from_missing_and_mask(
@@ -429,22 +445,92 @@ def fixup_24bpp_rgba_image_from_missing_and_mask(
     return rgba_image
 
 
-def count_pointer_image_visible_pixels(image: PIL.Image.Image) -> int:
-    """Return how many pixels in a decoded pointer image are not fully transparent."""
+def count_pointer_image_visible_pixels(
+        image: PIL.Image.Image,
+        invert_mask_image: PIL.Image.Image | None = None) -> int:
+    """Return how many pointer pixels are opaque or marked for framebuffer inversion."""
 
     visible_pixel_count = 0
+    rgba_pixels = image.getdata()
 
-    for red, green, blue, alpha in image.getdata():
-        if alpha > 0:
+    if invert_mask_image is None:
+        for red, green, blue, alpha in rgba_pixels:
+            if alpha > 0:
+                visible_pixel_count = visible_pixel_count + 1
+
+        return visible_pixel_count
+
+    invert_pixels = invert_mask_image.getdata()
+
+    for rgba_pixel, invert_pixel in zip(rgba_pixels, invert_pixels):
+        red, green, blue, alpha = rgba_pixel
+
+        if alpha > 0 or invert_pixel:
             visible_pixel_count = visible_pixel_count + 1
 
     return visible_pixel_count
 
 
-def pointer_image_has_visible_pixels(image: PIL.Image.Image) -> bool:
-    """Return True when a decoded pointer image has at least one opaque pixel."""
+def pointer_image_has_visible_pixels(
+        image: PIL.Image.Image,
+        invert_mask_image: PIL.Image.Image | None = None) -> bool:
+    """Return True when a decoded pointer image has at least one visible pixel."""
 
-    return count_pointer_image_visible_pixels(image) > 0
+    return count_pointer_image_visible_pixels(image, invert_mask_image) > 0
+
+
+def build_composited_pointer_rgba_image(
+        rgba_image: PIL.Image.Image,
+        invert_mask_image: PIL.Image.Image | None,
+        cursor_top_left_widget_x: int,
+        cursor_top_left_widget_y: int,
+        sample_framebuffer_red_green_blue) -> PIL.Image.Image:
+    """Composite pointer RGBA with framebuffer-inverted pixels for MS-RDPBCGR invert bits."""
+
+    pointer_width, pointer_height = rgba_image.size
+    rgba_pixels = rgba_image.getdata()
+
+    if invert_mask_image is None:
+        invert_pixels = [0] * (pointer_width * pointer_height)
+    else:
+        invert_pixels = invert_mask_image.getdata()
+
+    composited_pixels = []
+
+    for y_position in range(pointer_height):
+        for x_position in range(pointer_width):
+            pixel_index = y_position * pointer_width + x_position
+            red, green, blue, alpha = rgba_pixels[pixel_index]
+            invert_pixel = invert_pixels[pixel_index]
+
+            if invert_pixel:
+                widget_x = cursor_top_left_widget_x + x_position
+                widget_y = cursor_top_left_widget_y + y_position
+                frame_sample = sample_framebuffer_red_green_blue(widget_x, widget_y)
+
+                if frame_sample is None:
+                    background_red = 0
+                    background_green = 0
+                    background_blue = 0
+                else:
+                    background_red, background_green, background_blue = frame_sample
+
+                composited_pixels.append((
+                    255 - background_red,
+                    255 - background_green,
+                    255 - background_blue,
+                    255))
+
+            elif alpha > 0:
+                composited_pixels.append((red, green, blue, alpha))
+
+            else:
+                composited_pixels.append((0, 0, 0, 0))
+
+    composited_image = PIL.Image.new("RGBA", (pointer_width, pointer_height))
+    composited_image.putdata(composited_pixels)
+
+    return composited_image
 
 
 def clamp_hotspot(hotspot_x: int, hotspot_y: int, width: int, height: int) -> tuple[int, int]:
@@ -499,7 +585,7 @@ def build_bitmap_pointer_update_from_color_attribute(
 
     hotspot_x, hotspot_y = clamp_hotspot(hotspot_x, hotspot_y, width, height)
 
-    rgba_image = build_rgba_image_from_pointer_masks(
+    rgba_image, invert_mask_image = build_pointer_images_from_pointer_masks(
         width,
         height,
         xor_bits_per_pixel,
@@ -510,7 +596,9 @@ def build_bitmap_pointer_update_from_color_attribute(
         pixel_area = width * height
 
         if are_all_and_mask_bytes_zero(and_mask_data, width, height) \
-                or count_pointer_image_visible_pixels(rgba_image) > (pixel_area * 3) // 4:
+                or count_pointer_image_visible_pixels(
+                    rgba_image,
+                    invert_mask_image) > (pixel_area * 3) // 4:
             rgba_image = fixup_24bpp_rgba_image_from_missing_and_mask(rgba_image)
 
     pointer_update = RdpPointerUpdate.build_bitmap(
@@ -518,7 +606,8 @@ def build_bitmap_pointer_update_from_color_attribute(
         hotspot_y,
         rgba_image,
         cache_index=cache_index,
-        xor_bits_per_pixel=xor_bits_per_pixel)
+        xor_bits_per_pixel=xor_bits_per_pixel,
+        invert_mask_image=invert_mask_image)
 
     if pointer_cache is not None:
         pointer_cache.store_bitmap(cache_index, pointer_update)
@@ -565,7 +654,7 @@ def build_bitmap_pointer_update_from_large_attribute(
 
     hotspot_x, hotspot_y = clamp_hotspot(hotspot_x, hotspot_y, width, height)
 
-    rgba_image = build_rgba_image_from_pointer_masks(
+    rgba_image, invert_mask_image = build_pointer_images_from_pointer_masks(
         width,
         height,
         xor_bits_per_pixel,
@@ -576,7 +665,9 @@ def build_bitmap_pointer_update_from_large_attribute(
         pixel_area = width * height
 
         if are_all_and_mask_bytes_zero(and_mask_data, width, height) \
-                or count_pointer_image_visible_pixels(rgba_image) > (pixel_area * 3) // 4:
+                or count_pointer_image_visible_pixels(
+                    rgba_image,
+                    invert_mask_image) > (pixel_area * 3) // 4:
             rgba_image = fixup_24bpp_rgba_image_from_missing_and_mask(rgba_image)
 
     pointer_update = RdpPointerUpdate.build_bitmap(
@@ -584,7 +675,8 @@ def build_bitmap_pointer_update_from_large_attribute(
         hotspot_y,
         rgba_image,
         cache_index=cache_index,
-        xor_bits_per_pixel=xor_bits_per_pixel)
+        xor_bits_per_pixel=xor_bits_per_pixel,
+        invert_mask_image=invert_mask_image)
 
     if pointer_cache is not None:
         pointer_cache.store_bitmap(cache_index, pointer_update)

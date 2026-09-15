@@ -302,7 +302,8 @@ class RdpRemoteCursorOverlay(PyQt6.QtWidgets.QWidget):
         self.setAttribute(PyQt6.QtCore.Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setAttribute(PyQt6.QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
-        self._cursor_pixmap: PyQt6.QtGui.QPixmap | None = None
+        self._cursor_rgba_image: PIL.Image.Image | None = None
+        self._invert_mask_image: PIL.Image.Image | None = None
         self._cursor_hotspot_x = 0
         self._cursor_hotspot_y = 0
         self._pointer_position: PyQt6.QtCore.QPoint | None = None
@@ -310,25 +311,28 @@ class RdpRemoteCursorOverlay(PyQt6.QtWidgets.QWidget):
     def clear_cursor(self):
         """Remove the painted remote pointer."""
 
-        self._cursor_pixmap = None
+        self._cursor_rgba_image = None
+        self._invert_mask_image = None
         self._pointer_position = None
         self.hide()
         self.update()
 
-    def set_cursor_pixmap(
+    def set_cursor_images(
             self,
-            cursor_pixmap: PyQt6.QtGui.QPixmap | None,
+            cursor_rgba_image: PIL.Image.Image | None,
+            invert_mask_image: PIL.Image.Image | None,
             hotspot_x: int,
             hotspot_y: int):
 
-        """Store a remote pointer pixmap and hotspot for painting."""
+        """Store decoded pointer images and hotspot for paint-time compositing."""
 
-        if cursor_pixmap is None or cursor_pixmap.isNull():
+        if cursor_rgba_image is None:
             self.clear_cursor()
 
             return
 
-        self._cursor_pixmap = cursor_pixmap
+        self._cursor_rgba_image = cursor_rgba_image
+        self._invert_mask_image = invert_mask_image
         self._cursor_hotspot_x = hotspot_x
         self._cursor_hotspot_y = hotspot_y
         self.show()
@@ -340,21 +344,64 @@ class RdpRemoteCursorOverlay(PyQt6.QtWidgets.QWidget):
 
         self._pointer_position = pointer_position
 
-        if self._cursor_pixmap is not None and pointer_position is not None:
+        if self._cursor_rgba_image is not None and pointer_position is not None:
             self.update()
+
+    def _sample_framebuffer_red_green_blue(
+            self,
+            canvas,
+            widget_x: int,
+            widget_y: int) -> tuple[int, int, int] | None:
+        """Return framebuffer RGB at widget-local coordinates inside the letterboxed image."""
+
+        if canvas._frame_image is None or canvas._frame_image.isNull():
+            return None
+
+        origin = canvas._letterbox_origin()
+        frame_x = widget_x - origin.x()
+        frame_y = widget_y - origin.y()
+
+        if frame_x < 0 or frame_y < 0:
+            return None
+
+        if frame_x >= canvas._remote_width or frame_y >= canvas._remote_height:
+            return None
+
+        frame_color = canvas._frame_image.pixelColor(frame_x, frame_y)
+
+        return frame_color.red(), frame_color.green(), frame_color.blue()
 
     def paintEvent(self, paint_event: PyQt6.QtGui.QPaintEvent):
         """Draw the remote pointer bitmap at the tracked widget position."""
 
-        if self._cursor_pixmap is None or self._pointer_position is None:
+        if self._cursor_rgba_image is None or self._pointer_position is None:
             return
+
+        canvas = self.parent()
+
+        if not isinstance(canvas, RdpCanvas):
+            return
+
+        cursor_x = self._pointer_position.x() - self._cursor_hotspot_x
+        cursor_y = self._pointer_position.y() - self._cursor_hotspot_y
+
+        def sample_framebuffer_red_green_blue(widget_x: int, widget_y: int):
+            return self._sample_framebuffer_red_green_blue(canvas, widget_x, widget_y)
+
+        composited_rgba_image = \
+            rdp_client.pointer_update.build_composited_pointer_rgba_image(
+                self._cursor_rgba_image,
+                self._invert_mask_image,
+                cursor_x,
+                cursor_y,
+                sample_framebuffer_red_green_blue)
+
+        cursor_pixmap = build_cursor_pixmap_from_rgba_image(composited_rgba_image)
 
         painter = PyQt6.QtGui.QPainter(self)
         painter.setCompositionMode(
             PyQt6.QtGui.QPainter.CompositionMode.CompositionMode_SourceOver)
-        cursor_x = self._pointer_position.x() - self._cursor_hotspot_x
-        cursor_y = self._pointer_position.y() - self._cursor_hotspot_y
-        painter.drawPixmap(cursor_x, cursor_y, self._cursor_pixmap)
+        painter.drawPixmap(cursor_x, cursor_y, cursor_pixmap)
         painter.end()
 
 
@@ -436,8 +483,6 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         self._last_pointer_widget_position: PyQt6.QtCore.QPoint | None = None
         self._suppress_default_pointer_until: float = 0.0
         self._last_mouse_pointer_debug_at: float = 0.0
-        self._cursor_pixmap_cache_key: tuple[bytes, int, int] | None = None
-        self._cursor_pixmap_cached: PyQt6.QtGui.QPixmap | None = None
         self._cursor_overlay = RdpRemoteCursorOverlay(self)
         self._cursor_overlay.hide()
         self._input_queue: queue.Queue | None = None
@@ -707,7 +752,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         self._pointer_inside_canvas = False
         self._last_pointer_widget_position = None
         self.unsetCursor()
-        self._cursor_overlay.set_pointer_position(None)
+        self._cursor_overlay.clear_cursor()
         super().leaveEvent(leave_event)
 
     def apply_pointer_update(self, pointer_update: rdp_client.pointer_update.RdpPointerUpdate):
@@ -747,6 +792,12 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
                 return
 
+            if self._bitmap_pointer_update is None:
+                rdp_client.pointer_debug.write_pointer_debug(
+                    "pointer apply: default ignored (no bitmap pointer yet)")
+
+                return
+
             self._bitmap_pointer_update = None
             self._sync_remote_cursor_display()
             self._write_pointer_apply_debug(pointer_update, applied=True)
@@ -775,7 +826,9 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
             if image is not None:
                 visible_pixel_count = \
-                    rdp_client.pointer_update.count_pointer_image_visible_pixels(image)
+                    rdp_client.pointer_update.count_pointer_image_visible_pixels(
+                        image,
+                        pointer_update.invert_mask_image)
 
             rdp_client.pointer_debug.write_pointer_debug(
                 "pointer apply: bitmap {width}x{height} xor_bpp={xor_bpp} cache_index={cache_index} hotspot=({hotspot_x}, {hotspot_y}) visible_pixels={visible_pixel_count} applied={applied} inside={inside}".format(
@@ -802,24 +855,6 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
         self._cursor_overlay.raise_()
 
-    def _get_cursor_pixmap_for_image(
-            self,
-            image: PIL.Image.Image,
-            hotspot_x: int,
-            hotspot_y: int) -> PyQt6.QtGui.QPixmap:
-        """Return a cached Qt pixmap for a decoded pointer image."""
-
-        cache_key = (image.tobytes(), hotspot_x, hotspot_y)
-
-        if cache_key == self._cursor_pixmap_cache_key and self._cursor_pixmap_cached is not None:
-            return self._cursor_pixmap_cached
-
-        cursor_pixmap = build_cursor_pixmap_from_rgba_image(image)
-        self._cursor_pixmap_cache_key = cache_key
-        self._cursor_pixmap_cached = cursor_pixmap
-
-        return cursor_pixmap
-
     def _sync_remote_cursor_display(self):
         """Paint the remote pointer overlay and hide the local mouse cursor."""
 
@@ -829,26 +864,24 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         pointer_update = self._bitmap_pointer_update
 
         if pointer_update is None or pointer_update.image is None:
-            self.unsetCursor()
+            self.setCursor(PyQt6.QtCore.Qt.CursorShape.BlankCursor)
             self._cursor_overlay.clear_cursor()
 
             return
 
-        if not rdp_client.pointer_update.pointer_image_has_visible_pixels(pointer_update.image):
-            self.unsetCursor()
+        if not rdp_client.pointer_update.pointer_image_has_visible_pixels(
+                pointer_update.image,
+                pointer_update.invert_mask_image):
+            self.setCursor(PyQt6.QtCore.Qt.CursorShape.BlankCursor)
             self._cursor_overlay.clear_cursor()
             rdp_client.pointer_debug.write_pointer_debug(
-                "pointer sync: bitmap has no visible pixels; using local arrow")
+                "pointer sync: bitmap has no visible pixels; keeping blank local cursor")
 
             return
 
-        cursor_pixmap = self._get_cursor_pixmap_for_image(
+        self._cursor_overlay.set_cursor_images(
             pointer_update.image,
-            pointer_update.hotspot_x,
-            pointer_update.hotspot_y)
-
-        self._cursor_overlay.set_cursor_pixmap(
-            cursor_pixmap,
+            pointer_update.invert_mask_image,
             pointer_update.hotspot_x,
             pointer_update.hotspot_y)
 
@@ -1092,6 +1125,11 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._canvas.set_frame_image(self._frame_buffer)
         self._canvas.set_remote_dimensions(video_width, video_height)
         self._canvas.raise_cursor_overlay()
+
+        bitmap_pointer_update = self._canvas._bitmap_pointer_update
+
+        if bitmap_pointer_update is not None and bitmap_pointer_update.image is not None:
+            self._canvas._cursor_overlay.update()
 
     def _handle_resolution_changed(self, width: int, height: int):
         """Resize local buffers when the server changes session geometry."""
