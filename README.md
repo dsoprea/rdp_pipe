@@ -19,7 +19,7 @@ This creates `.venv/` and installs the package in editable mode with test depend
 ## Connect
 
 ```bash
-.venv/bin/rdp [-h] [--headless] [--pipe] URL
+.venv/bin/rdp [-h] [--headless] [--pipe] [--no-autoresize] URL
 ```
 
 GUI mode (default) opens a PyQt6 window. `--headless` runs without a display and **requires** `--pipe` for automation on `/tmp/rdp.sock`.

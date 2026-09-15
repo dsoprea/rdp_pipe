@@ -1,5 +1,7 @@
 """Unit tests for Qt session canvas geometry vs framebuffer sizing."""
 
+from unittest import mock
+
 import PyQt6.QtCore
 import PyQt6.QtGui
 import PyQt6.QtWidgets
@@ -84,3 +86,49 @@ def test_session_container_resize_debounce_emits_client_area_size(qt_application
     container._emit_debounced_resize()
 
     assert emitted_sizes == [(1500, 850)]
+
+
+def _build_session_window_with_mock_worker(
+        autoresize_enabled: bool) -> tuple[
+            rdp_client.qt_session_window.RdpSessionWindow,
+            mock.Mock]:
+
+    mock_worker = mock.Mock()
+    mock_session = mock.Mock()
+    mock_session.display_caps_unavailable = False
+    mock_worker.get_session.return_value = mock_session
+    mock_worker_thread = mock.Mock()
+
+    with mock.patch(
+            "rdp_client.rdp_session_thread.RdpSessionWorker",
+            return_value=mock_worker):
+        with mock.patch(
+                "PyQt6.QtCore.QThread",
+                return_value=mock_worker_thread):
+            session_window = rdp_client.qt_session_window.RdpSessionWindow(
+                "rdp+ntlm-password://user@10.0.0.5",
+                1280,
+                800,
+                autoresize_enabled=autoresize_enabled)
+
+    return session_window, mock_worker
+
+
+def test_no_autoresize_skips_remote_resolution_request(qt_application):
+    """--no-autoresize must not send RDPDISP layout requests on window resize."""
+
+    session_window, mock_worker = _build_session_window_with_mock_worker(False)
+    session_window._session_rdp_ready = True
+    session_window._handle_canvas_resize_requested(1600, 900)
+
+    mock_worker.request_remote_resolution.assert_not_called()
+
+
+def test_autoresize_forwards_remote_resolution_request(qt_application):
+    """Default autoresize sends RDPDISP layout requests after session ready."""
+
+    session_window, mock_worker = _build_session_window_with_mock_worker(True)
+    session_window._session_rdp_ready = True
+    session_window._handle_canvas_resize_requested(1601, 901)
+
+    mock_worker.request_remote_resolution.assert_called_once_with(1600, 901)

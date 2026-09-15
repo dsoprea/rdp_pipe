@@ -56,6 +56,7 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 - Registers dynamic virtual channel `Microsoft::Windows::RDS::DisplayControl`
 - Advertises monitor-layout capability at connect; requests 32 bpp session flags when `--color-depth` is `32` (default)
 - Debounced window resize (~250 ms) sends `DISPLAYCONTROL_MONITOR_LAYOUT_PDU`
+- `--no-autoresize` keeps the remote resolution fixed while the local window still letterboxes
 - Reallocates local desktop buffer when the server changes session geometry
 - Falls back to letterboxing when the server does not send RDPDISP caps (warning logged once)
 

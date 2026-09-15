@@ -46,6 +46,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="session bits per pixel (default {0}); affects receive_screenshot and receive_geometry".format(
             DEFAULT_COLOR_DEPTH))
 
+    parser.add_argument(
+        "--no-autoresize",
+        action="store_true",
+        help="do not resize the remote desktop when the local window changes size")
+
     return parser
 
 
@@ -71,7 +76,8 @@ def run_gui_session(
         connection_url: str,
         command_socket_path: str | None,
         activity_stamp_filepath: str | None,
-        color_depth: int) -> int:
+        color_depth: int,
+        autoresize_enabled: bool) -> int:
     """Launch the PyQt6 desktop client."""
 
     import PyQt6.QtCore
@@ -86,7 +92,8 @@ def run_gui_session(
         DEFAULT_VIDEO_HEIGHT,
         color_depth=color_depth,
         command_socket_path=command_socket_path,
-        activity_stamp_filepath=activity_stamp_filepath)
+        activity_stamp_filepath=activity_stamp_filepath,
+        autoresize_enabled=autoresize_enabled)
 
     session_window.show()
 
@@ -218,7 +225,8 @@ def main(argv: list[str] | None = None) -> int:
         connection_url,
         pipe_filepath,
         arguments.activity_stamp_filepath,
-        arguments.color_depth)
+        arguments.color_depth,
+        autoresize_enabled=not arguments.no_autoresize)
 
 
 if __name__ == "__main__":

@@ -982,12 +982,14 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             video_height: int,
             color_depth: int = 32,
             command_socket_path: str | None = None,
-            activity_stamp_filepath: str | None = None):
+            activity_stamp_filepath: str | None = None,
+            autoresize_enabled: bool = True):
 
         """Build UI, iosettings, and the asyncio/Qt bridge."""
 
         super().__init__()
 
+        self._autoresize_enabled = autoresize_enabled
         self._connection_url = connection_url
         self._input_queue = queue.Queue()
         self._display_caps_warning_shown = False
@@ -1149,6 +1151,9 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
     def _handle_canvas_resize_requested(self, width: int, height: int):
         """Forward debounced client area size to the RDPDISP worker."""
+
+        if self._autoresize_enabled is False:
+            return
 
         if self._session_rdp_ready is False:
             return
