@@ -21,6 +21,19 @@ Send one automation command to a running `rdp` session (started with `--pipe`):
 - Writes the full JSON response envelope to stdout for most subcommands (`{"ok": true, "result": {...}}` or error via stderr with exit code `1`); `command_receive_screenshot` by default writes decoded image bytes to a temporary file, prints the filepath on stdout, and prints `Image size: SIZE` (megabytes, two decimal places) plus a trailing blank line on stderr — pass `--no-write` to print the JSON envelope instead
 - One invocation sends one command; see [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md) for wire field details
 
+## MCP (`rdp_pipe`)
+
+Model Context Protocol server for LLM hosts (Cursor and others) that wraps `rdpr` subcommands:
+
+- Project config: [`.cursor/mcp.json`](.cursor/mcp.json) (clone-and-use; merge into other hosts as needed)
+- Server script: `script/rdpr_mcp_server.py` (stdio transport)
+- Prerequisite: `rdp` running with `--pipe` on the command socket (default `/tmp/rdp.sock`)
+- Install MCP support: `pip install -e ".[mcp]"` (after pyenv install per `.python-version`)
+- Environment: `RDPR_COMMAND` (default `rdpr` on `PATH`), `RDPR_SOCK_FILEPATH` (default `/tmp/rdp.sock`)
+- Tools (one per `rdpr` subcommand): `command_receive_geometry`, `command_send_geometry`, `command_receive_screenshot`, `command_send_click`, `command_send_key`
+- `command_receive_screenshot` always invokes `rdpr` with `--no-write` and returns inline MCP image content plus width/height metadata (no temporary image file)
+- Other tools return the full JSON response envelope as text
+
 ## Command socket (automation)
 
 Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md).

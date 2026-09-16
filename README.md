@@ -4,22 +4,24 @@ Python desktop RDP client for Linux operators connecting to remote hosts over RD
 
 ## Prerequisites
 
-- Python 3.11+
+- **pyenv** with the Python version named in **`.python-version`** installed locally (the file is required in every clone; install that interpreter with pyenv before pip)
 - An X11 or Wayland desktop session for PyQt6
 - Network reachability to the target host on TCP 3389 (or the port in the URL)
 
 ## Install
 
+From the repo root with pyenv active:
+
 ```bash
-./script/install.sh
+pip install -e ".[dev]"
 ```
 
-This creates `.venv/` and installs the package in editable mode with test dependencies.
+This project does not use virtualenv. Console scripts (`rdp`, `rdpr`) land on your pyenv shim path after editable install.
 
 ## Connect
 
 ```bash
-.venv/bin/rdp [-h] [--headless] [--pipe] [--no-autoresize] URL
+rdp [-h] [--headless] [--pipe] [--no-autoresize] URL
 ```
 
 GUI mode (default) opens a PyQt6 window. `--headless` runs without a display and **requires** `--pipe` for automation on `/tmp/rdp.sock`.
@@ -29,9 +31,9 @@ Press **Ctrl+C in the terminal** where you launched `rdp` to disconnect and exit
 `URL` is an aardwolf-style connection string or bare host shorthand:
 
 ```bash
-.venv/bin/rdp rdp://DOMAIN\\Administrator@10.0.0.5:3389
-.venv/bin/rdp rdp+ntlm-password://DOMAIN\\Administrator@10.0.0.5:3389
-.venv/bin/rdp 10.0.0.5
+rdp rdp://DOMAIN\\Administrator@10.0.0.5:3389
+rdp rdp+ntlm-password://DOMAIN\\Administrator@10.0.0.5:3389
+rdp 10.0.0.5
 ```
 
 Generic `rdp://` URLs prefer NTLM password authentication; the server selects NLA (CredSSP), TLS-only, or legacy RDP during X.224 negotiation.
@@ -68,18 +70,18 @@ Examples:
 
 ```bash
 export RDP_PASSWORD='your-password'
-.venv/bin/rdp 'rdp+ntlm-password://DOMAIN\Administrator@10.0.0.5'
+rdp 'rdp+ntlm-password://DOMAIN\Administrator@10.0.0.5'
 ```
 
 ```bash
-echo 'your-password' | .venv/bin/rdp 'rdp+ntlm-password://Administrator@10.0.0.5'
+echo 'your-password' | rdp 'rdp+ntlm-password://Administrator@10.0.0.5'
 ```
 
 ### Headless automation
 
 ```bash
 export RDP_PASSWORD='your-password'
-.venv/bin/rdp --headless --pipe '10.0.0.5'
+rdp --headless --pipe '10.0.0.5'
 ```
 
 Headless mode uses a fixed 1280×800 session geometry (no window resize). The process listens on the Unix socket for newline-delimited JSON commands. Use `--color-depth 24` (or `16`) when you need a specific bpp for screen analysis via `receive_screenshot`.
@@ -89,10 +91,10 @@ Full wire format, command parameters, response shapes, and client examples: **[R
 Quick probe with `rdpr`:
 
 ```bash
-.venv/bin/rdpr command_receive_geometry
-.venv/bin/rdpr command_send_geometry 1920 1080
-.venv/bin/rdpr command_send_click 640 400 --button left
-.venv/bin/rdpr --sock-filepath /tmp/rdp.sock command_receive_screenshot --format png
+rdpr command_receive_geometry
+rdpr command_send_geometry 1920 1080
+rdpr command_send_click 640 400 --button left
+rdpr --sock-filepath /tmp/rdp.sock command_receive_screenshot --format png
 ```
 
 Or with `nc`:
@@ -102,6 +104,24 @@ printf '%s\n' '{"command":"receive_geometry"}' | nc -U /tmp/rdp.sock
 ```
 
 `--pipe` is optional in GUI mode (automation socket at `/tmp/rdp.sock` alongside the window).
+
+### MCP automation
+
+Install the optional MCP extra, then enable the committed project config or copy its `rdp_pipe` entry into your host’s MCP settings:
+
+```bash
+pip install -e ".[mcp]"
+```
+
+[`.cursor/mcp.json`](.cursor/mcp.json) launches `script/rdpr_mcp_server.py` with pyenv `python` and `rdpr` on `PATH` (socket `/tmp/rdp.sock`). For other MCP hosts, merge that entry and adjust paths.
+
+Typical LLM flow with an active `rdp --pipe` session:
+
+1. `command_receive_geometry` — learn coordinate bounds
+2. `command_receive_screenshot` — capture state (inline image; server always passes `--no-write` to `rdpr`)
+3. `command_send_click` / `command_send_key` — act on the remote desktop
+
+Wire protocol details: **[REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md)**.
 
 ## Monkey-patching
 
@@ -121,7 +141,8 @@ When adding or changing a runtime monkey-patch, update this section in the same 
 ## Test
 
 ```bash
-./script/test.sh
+pip install -e ".[dev,mcp]"
+python -m pytest -q
 ```
 
 Offline unit tests cover URL/password handling, RDPDISP PDU encoding, pointer mask decoding, command socket protocol, and CLI validation.
