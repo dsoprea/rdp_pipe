@@ -20,6 +20,28 @@ SESSION_RECONNECT_POLL_SECONDS = 0.1
 ASYNC_THREAD_FORCE_SHUTDOWN_JOIN_SECONDS = 2.0
 
 
+def _run_event_loop_shutdown_step(
+        event_loop: asyncio.AbstractEventLoop,
+        shutdown_step) -> None:
+    """Run one asyncio shutdown step; tolerate loop.stop() from forced shutdown."""
+
+    if event_loop.is_closed():
+        return
+
+    try:
+        event_loop.run_until_complete(shutdown_step)
+
+    except RuntimeError as error:
+
+        # force_async_thread_shutdown() can call loop.stop() while this thread is
+        # still draining pending tasks or shutting down the default executor.
+
+        error_message = str(error)
+
+        if "Event loop stopped" not in error_message:
+            raise
+
+
 def close_event_loop_after_cancelling_pending_tasks(
         event_loop: asyncio.AbstractEventLoop) -> None:
     """Cancel leftover tasks, shut down asyncio resources, then close the loop."""
@@ -36,16 +58,18 @@ def close_event_loop_after_cancelling_pending_tasks(
         gather_pending = asyncio.gather(
             *pending_tasks,
             return_exceptions=True)
-        event_loop.run_until_complete(gather_pending)
+        _run_event_loop_shutdown_step(event_loop, gather_pending)
 
     # Match asyncio.run() so async generators and the default executor exit
     # before the loop is closed.
 
     shutdown_asyncgens = event_loop.shutdown_asyncgens()
-    event_loop.run_until_complete(shutdown_asyncgens)
+    _run_event_loop_shutdown_step(event_loop, shutdown_asyncgens)
     shutdown_default_executor = event_loop.shutdown_default_executor()
-    event_loop.run_until_complete(shutdown_default_executor)
-    event_loop.close()
+    _run_event_loop_shutdown_step(event_loop, shutdown_default_executor)
+
+    if event_loop.is_closed() is False:
+        event_loop.close()
 
 
 class RdpVideoFrame(rdp_client.rdp_session_core.RdpVideoFrame):
@@ -185,6 +209,45 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
             await asyncio.sleep(sleep_seconds)
 
+    async def _poll_gui_shutdown_during_connect(self):
+        """Wake when the Qt thread requests shutdown during an in-flight connect."""
+
+        while self._gui_stopped_event.is_set() is False:
+            await asyncio.sleep(SESSION_RECONNECT_POLL_SECONDS)
+
+    async def _connect_session_unless_gui_stopped(self):
+        """Connect unless window close was requested while TCP handshake is pending."""
+
+        connect_task = asyncio.create_task(self._session.connect())
+        shutdown_poll_task = asyncio.create_task(self._poll_gui_shutdown_during_connect())
+
+        done_tasks, pending_tasks = await asyncio.wait(
+            [connect_task, shutdown_poll_task],
+            return_when=asyncio.FIRST_COMPLETED)
+
+        for pending_task in pending_tasks:
+            pending_task.cancel()
+
+            try:
+                await pending_task
+
+            except asyncio.CancelledError:
+                pass
+
+        if shutdown_poll_task in done_tasks and self._gui_stopped_event.is_set():
+
+            connect_task.cancel()
+
+            try:
+                await connect_task
+
+            except asyncio.CancelledError:
+                pass
+
+            raise asyncio.CancelledError()
+
+        return connect_task.result()
+
     async def _run_connection(self):
         """Connect, stream VIDEO events, reconnect after drops, and honor shutdown."""
 
@@ -213,7 +276,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
                 self._session.add_clipboard_text_callback(self._emit_clipboard_text)
                 self._session.set_progress_callback(self._emit_connection_progress)
 
-                await self._session.connect()
+                await self._connect_session_unless_gui_stopped()
                 connect_succeeded = True
                 await self._session.drain_queued_pointer_updates()
 
@@ -246,7 +309,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
                         rdp_client.connection_error.format_session_ended_stderr(error)
                     sys.stderr.write(session_ended_stderr)
 
-                else:
+                elif self._gui_stopped_event.is_set() is False:
                     connection_failure_stderr = \
                         rdp_client.connection_error.format_connection_failure_stderr(
                             self._connection_url,
@@ -339,11 +402,11 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
             timeout_seconds: float = ASYNC_THREAD_FORCE_SHUTDOWN_JOIN_SECONDS) -> bool:
         """Stop the asyncio loop and join the worker thread after a cooperative timeout."""
 
-        if self._event_loop is not None and self._event_loop.is_running():
-            self._event_loop.call_soon_threadsafe(self._event_loop.stop)
-
         if self._async_thread is None:
             return True
+
+        if self._event_loop is not None and self._event_loop.is_running():
+            self._event_loop.call_soon_threadsafe(self._event_loop.stop)
 
         self._async_thread.join(timeout=timeout_seconds)
 

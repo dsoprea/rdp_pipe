@@ -624,3 +624,109 @@ def test_close_event_loop_with_no_pending_tasks_closes_loop():
         event_loop)
 
     assert event_loop.is_closed() is True
+
+
+def test_close_event_loop_survives_external_stop_during_shutdown():
+    """Forced loop.stop() during cleanup must not leave the loop open or raise."""
+
+    event_loop = asyncio.new_event_loop()
+    original_shutdown_default_executor = event_loop.shutdown_default_executor
+
+    def shutdown_default_executor_with_stop():
+        shutdown_future = original_shutdown_default_executor()
+        event_loop.call_soon(event_loop.stop)
+
+        return shutdown_future
+
+    event_loop.shutdown_default_executor = shutdown_default_executor_with_stop
+
+    rdp_client.rdp_session_thread.close_event_loop_after_cancelling_pending_tasks(
+        event_loop)
+
+    assert event_loop.is_closed() is True
+
+
+async def _run_connect_aborts_when_gui_stops():
+    """Exercise connect cancellation when the GUI requests shutdown."""
+
+    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    connect_started = asyncio.Event()
+    connect_cancelled = False
+
+    async def slow_connect():
+        connect_started.set()
+
+        try:
+            await asyncio.Event().wait()
+
+        except asyncio.CancelledError:
+            nonlocal connect_cancelled
+            connect_cancelled = True
+
+            raise
+
+    worker._gui_stopped_event.set()
+    worker._session = unittest.mock.Mock()
+    worker._session.connect = slow_connect
+
+    try:
+        await worker._connect_session_unless_gui_stopped()
+
+    except asyncio.CancelledError:
+        await connect_started.wait()
+
+        return connect_cancelled
+
+    raise AssertionError("expected CancelledError when GUI shutdown is requested")
+
+
+def test_connect_aborts_when_gui_stops_during_connect():
+    """Closing the window during reconnect must cancel an in-flight connect."""
+
+    connect_cancelled = asyncio.run(_run_connect_aborts_when_gui_stops())
+
+    assert connect_cancelled is True
+
+
+async def _run_connect_failure_stderr_suppressed_on_shutdown():
+    """Connection errors during shutdown must not print reconnect failure stderr."""
+
+    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    worker._connection_url = "rdp://user@100.61.78.163:3389"
+    worker._video_width = 800
+    worker._video_height = 600
+    worker._color_depth = 32
+    worker._activity_stamp_filepath = None
+
+    async def fail_connect_during_shutdown():
+        worker._gui_stopped_event.set()
+        raise TimeoutError("connection timed out")
+
+    session_stub = unittest.mock.Mock()
+    session_stub.add_video_frame_callback = unittest.mock.Mock()
+    session_stub.add_pointer_update_callback = unittest.mock.Mock()
+    session_stub.add_resolution_changed_callback = unittest.mock.Mock()
+    session_stub.add_clipboard_text_callback = unittest.mock.Mock()
+    session_stub.set_progress_callback = unittest.mock.Mock()
+    session_stub.display_caps_unavailable = False
+    session_stub.stop = unittest.mock.AsyncMock(return_value=None)
+
+    with unittest.mock.patch(
+            "rdp_client.rdp_session_core.RdpAsyncSession",
+            return_value=session_stub):
+
+        with unittest.mock.patch.object(
+                worker,
+                "_connect_session_unless_gui_stopped",
+                fail_connect_during_shutdown):
+
+            with unittest.mock.patch("sys.stderr.write") as stderr_write:
+                await worker._run_connection()
+
+    stderr_write.assert_not_called()
+
+
+def test_connect_failure_stderr_suppressed_when_shutdown_requested():
+    """Do not print could not connect stderr when the window is already closing."""
+
+    asyncio.run(_run_connect_failure_stderr_suppressed_on_shutdown())

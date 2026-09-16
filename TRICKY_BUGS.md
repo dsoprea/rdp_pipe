@@ -156,6 +156,9 @@ aardwolf `send_disconnect()` can also block on `MCS.out_queue.get()` during an i
 - Prefer `session.stop()` on the worker loop when a session exists; only cancel `_connection_task` if the session is not created yet.
 - `asyncio.shield(self._session.stop())` in `_run_connection` `finally`.
 - `close_event_loop_after_cancelling_pending_tasks()` cancels `asyncio.all_tasks()`, gathers them, then `shutdown_asyncgens` / `shutdown_default_executor` before `loop.close()`.
+- `_run_event_loop_shutdown_step()` tolerates `RuntimeError: Event loop stopped` when `force_async_thread_shutdown()` calls `loop.stop()` while the worker thread is still in that drain path.
+- `_connect_session_unless_gui_stopped()` cancels an in-flight `connect()` as soon as `_gui_stopped_event` is set so reconnect TCP timeouts cannot stall the 5s GUI join.
+- Suppress `could not connect` stderr when `_gui_stopped_event` is already set.
 - `RdpDesktopConnection.terminate()` waits up to 2s for aardwolf terminate, closes the transport on timeout, and awaits the name-mangled x224/external reader tasks.
 - Shutdown-timeout cancel uses `call_soon_threadsafe`.
 
