@@ -10,6 +10,7 @@
 - `--activity-stamp-filepath PATH`: touch `PATH` on each remote framebuffer update (for external watchdogs / idle detection)
 - `--color-depth N`: session bits per pixel (`15`, `16`, `24`, or `32`; default `32`); sets `receive_geometry.color_depth` and the framebuffer used by `receive_screenshot`
 - Terminal Ctrl+C (SIGINT in the launching shell) disconnects cleanly and exits without a traceback in GUI and headless modes
+- Connect failures print a single managed stderr `error:` line with `host:port` and a short reason (no traceback); certificate fingerprint mismatch keeps the multi-line remediation format
 
 ## CLI (`rdp_remote`)
 
@@ -36,6 +37,7 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 
 - No display server required; fixed 1280×800 connect resolution
 - Connection progress steps printed to stderr (prepare, connect, certificate trust, authentication, display configuration, ready)
+- Connect failures exit non-zero with the same managed `error: could not connect to host:port (reason)` stderr line as the GUI (no traceback)
 - Serves the command socket until the RDP session ends
 
 ## Desktop session (PyQt6)

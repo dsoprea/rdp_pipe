@@ -149,7 +149,19 @@ async def run_headless_session_async(
     event_loop.add_signal_handler(signal.SIGTERM, handle_shutdown_signal)
 
     try:
-        await session.connect()
+        try:
+            await session.connect()
+
+        except Exception as error:
+            import rdp_client.connection_error
+
+            connection_failure_stderr = \
+                rdp_client.connection_error.format_connection_failure_stderr(
+                    connection_url,
+                    error)
+            sys.stderr.write(connection_failure_stderr)
+
+            return 1
 
         command_server = rdp_client.command_socket.CommandSocketServer(
             command_socket_path,

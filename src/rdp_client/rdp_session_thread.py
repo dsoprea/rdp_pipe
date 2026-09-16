@@ -5,13 +5,11 @@ import logging
 import sys
 import queue
 import threading
-import traceback
-
 import PyQt6.QtCore
 
+import rdp_client.connection_error
 import rdp_client.pointer_update
 import rdp_client.rdp_session_core
-import rdp_client.trust_store
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -157,6 +155,8 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
     async def _run_connection(self):
         """Connect, stream VIDEO events, and honor shutdown."""
 
+        connect_succeeded = False
+
         try:
             self._session = rdp_client.rdp_session_core.RdpAsyncSession(
                 self._connection_url,
@@ -171,6 +171,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
             self._session.set_progress_callback(self._emit_connection_progress)
 
             await self._session.connect()
+            connect_succeeded = True
             await self._session.drain_queued_pointer_updates()
 
             if self._session.display_caps_unavailable:
@@ -189,14 +190,19 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
         except asyncio.CancelledError:
             return
 
-        except rdp_client.trust_store.CertificateTrustMismatchError as trust_error:
-            mismatch_stderr = \
-                rdp_client.trust_store.format_certificate_trust_mismatch_stderr(
-                    trust_error)
-            sys.stderr.write(mismatch_stderr)
+        except Exception as error:
 
-        except Exception:
-            traceback.print_exc()
+            if connect_succeeded:
+                session_ended_stderr = \
+                    rdp_client.connection_error.format_session_ended_stderr(error)
+                sys.stderr.write(session_ended_stderr)
+
+            else:
+                connection_failure_stderr = \
+                    rdp_client.connection_error.format_connection_failure_stderr(
+                        self._connection_url,
+                        error)
+                sys.stderr.write(connection_failure_stderr)
 
         finally:
             if self._session is not None:
@@ -229,9 +235,6 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
             try:
                 self._event_loop.run_until_complete(self._connection_task)
-
-            except Exception:
-                traceback.print_exc()
 
             finally:
                 close_event_loop_after_cancelling_pending_tasks(self._event_loop)
