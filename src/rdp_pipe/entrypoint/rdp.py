@@ -174,7 +174,8 @@ async def run_headless_session_async(
                 if command_server is None:
                     command_server = rdp_pipe.command_socket.CommandSocketServer(
                         command_socket_path,
-                        session)
+                        session,
+                        log_command_transactions=True)
 
                     command_server.start()
 

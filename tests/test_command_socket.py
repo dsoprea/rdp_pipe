@@ -152,6 +152,45 @@ def test_parse_command_request_invalid_json():
         rdp_pipe.command_socket.parse_command_request("{not-json")
 
 
+def test_extract_command_name_from_request_line_valid():
+    """Valid requests return the command field."""
+
+    command_name = rdp_pipe.command_socket.extract_command_name_from_request_line(
+        '{"command":"receive_geometry"}')
+
+    assert command_name == "receive_geometry"
+
+
+def test_extract_command_name_from_request_line_unknown():
+    """Invalid or incomplete requests return unknown."""
+
+    assert rdp_pipe.command_socket.extract_command_name_from_request_line("") == "unknown"
+    assert rdp_pipe.command_socket.extract_command_name_from_request_line("{not-json") == "unknown"
+    assert rdp_pipe.command_socket.extract_command_name_from_request_line("{}") == "unknown"
+
+
+def test_build_command_transaction_log_line():
+    """Transaction log lines include required fields with two-decimal duration."""
+
+    log_line = rdp_pipe.command_socket.build_command_transaction_log_line(
+        "2026-09-16T10:53:00.123-04:00",
+        "receive_geometry",
+        32,
+        58,
+        True,
+        0.05123)
+
+    log_body = json.loads(log_line)
+
+    assert log_body["timestamp"] == "2026-09-16T10:53:00.123-04:00"
+    assert log_body["command"] == "receive_geometry"
+    assert log_body["request_size"] == 32
+    assert log_body["response_size"] == 58
+    assert log_body["response_success"] is True
+    assert log_body["transaction_duration_seconds"] == 0.05
+    assert log_line.endswith("\n")
+
+
 def test_encode_desktop_image_png_base64_round_trip():
     """PNG encoding produces decodable image bytes."""
 

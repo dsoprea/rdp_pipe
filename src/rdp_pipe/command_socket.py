@@ -1,11 +1,14 @@
 """Unix domain socket JSON-line command server for RDP automation."""
 
 import asyncio
+import datetime
 import json
 import logging
 import os
 import socket
+import sys
 import threading
+import time
 import traceback
 
 import rdp_pipe.rdp_input
@@ -60,6 +63,56 @@ def parse_command_request(request_line: str) -> dict:
         raise ValueError("request missing command field")
 
     return request_body
+
+
+def extract_command_name_from_request_line(request_line: str) -> str:
+    """Return the command field from a request line, or unknown when not parseable."""
+
+    if request_line == "":
+        return "unknown"
+
+    try:
+        request_body = json.loads(request_line)
+
+    except json.JSONDecodeError:
+        return "unknown"
+
+    try:
+        return request_body["command"]
+
+    except KeyError:
+        return "unknown"
+
+
+def build_command_transaction_log_line(
+        timestamp_text: str,
+        command_name: str,
+        request_size: int,
+        response_size: int,
+        response_success: bool,
+        transaction_duration_seconds: float) -> str:
+    """Serialize one headless command transaction log entry as a JSON line."""
+
+    log_body = {
+        "timestamp": timestamp_text,
+        "command": command_name,
+        "request_size": request_size,
+        "response_size": response_size,
+        "response_success": response_success,
+        "transaction_duration_seconds": round(transaction_duration_seconds, 2),
+    }
+
+    log_line = json.dumps(log_body, separators=(",", ":"))
+    log_line = log_line + "\n"
+
+    return log_line
+
+
+def write_command_transaction_log_line(log_line: str):
+    """Write one transaction log JSON line to stdout for headless operators."""
+
+    sys.stdout.write(log_line)
+    sys.stdout.flush()
 
 
 DEFAULT_COMMAND_SOCKET_PATH = \
@@ -126,11 +179,17 @@ def send_command_request(socket_path: str, request_body: dict) -> dict:
 class CommandSocketServer:
     """Serve newline-delimited JSON commands over a Unix domain socket."""
 
-    def __init__(self, socket_path: str, session: rdp_pipe.rdp_session_core.RdpAsyncSession):
+    def __init__(
+            self,
+            socket_path: str,
+            session: rdp_pipe.rdp_session_core.RdpAsyncSession,
+            *,
+            log_command_transactions: bool = False):
         """Bind session handlers to a Unix socket at socket_path."""
 
         self._socket_path = socket_path
         self._session = session
+        self._log_command_transactions = log_command_transactions
         self._stop_event = threading.Event()
         self._server_thread = None
         self._listen_socket = None
@@ -204,10 +263,34 @@ class CommandSocketServer:
                 if request_line == "":
                     return
 
-                response_line = self._dispatch_request_line(request_line.rstrip("\n"))
+                request_payload = request_line.rstrip("\n")
+                request_size = len(request_payload.encode("utf-8"))
+                transaction_started_at = time.perf_counter()
+                response_line = self._dispatch_request_line(request_payload)
+                transaction_duration_seconds = \
+                    time.perf_counter() - transaction_started_at
+
                 output_file.write(response_line)
                 output_file.write("\n")
                 output_file.flush()
+
+                if self._log_command_transactions:
+                    response_size = len(response_line.encode("utf-8"))
+                    response_body = json.loads(response_line)
+                    response_success = response_body["ok"]
+                    command_name = extract_command_name_from_request_line(request_payload)
+                    timestamp_text = \
+                        datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat(
+                            timespec="milliseconds")
+                    log_line = build_command_transaction_log_line(
+                        timestamp_text,
+                        command_name,
+                        request_size,
+                        response_size,
+                        response_success,
+                        transaction_duration_seconds)
+
+                    write_command_transaction_log_line(log_line)
 
         finally:
             input_file.close()

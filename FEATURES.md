@@ -52,6 +52,7 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 - Connection progress steps printed to stderr (prepare, connect, certificate trust, authentication, display configuration, ready)
 - Connect failures exit non-zero with the same managed `error: could not connect to host:port (reason)` stderr line as the GUI (no traceback)
 - Serves the command socket until the RDP session ends
+- **Stdout transaction log:** one JSON object per line for every socket command (`timestamp`, `command`, `request_size`, `response_size`, `response_success`, `transaction_duration_seconds` with two decimal places); stderr remains human progress and error messages only
 
 ## Desktop session (PyQt6)
 

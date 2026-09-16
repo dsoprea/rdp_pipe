@@ -15,6 +15,29 @@ The socket is created only after the RDP session connects successfully. In headl
 
 `{system temp}` is the process system temp directory (`tempfile.gettempdir()` — honors `$TMPDIR`; typically `/tmp` on Linux).
 
+## Headless transaction log
+
+When `rdp` runs with `--headless --pipe`, the process writes **one JSON object per line to stdout** for every command received on the socket. Connection progress, `listening on …`, and session errors stay on **stderr** only.
+
+Each stdout line includes:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `timestamp` | string | ISO 8601 wall time with local timezone offset (millisecond precision) at response completion |
+| `command` | string | Request `command` field, or `"unknown"` when the request line is not valid JSON or omits `command` |
+| `request_size` | integer | UTF-8 byte length of the request JSON line (no trailing `\n`) |
+| `response_size` | integer | UTF-8 byte length of the response JSON line (no trailing `\n`) |
+| `response_success` | boolean | Value of the response envelope `ok` field |
+| `transaction_duration_seconds` | number | Wall time to dispatch the command, rounded to two decimal places |
+
+Example:
+
+```json
+{"timestamp":"2026-09-16T10:53:00.123-04:00","command":"receive_geometry","request_size":32,"response_size":58,"response_success":true,"transaction_duration_seconds":0.05}
+```
+
+GUI mode with optional `--pipe` does **not** emit transaction log lines.
+
 ## Transport semantics
 
 - **Socket type:** `AF_UNIX` `SOCK_STREAM`
