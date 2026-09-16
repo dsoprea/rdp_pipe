@@ -210,3 +210,25 @@ def test_leave_event_restores_arrow_cursor_after_blank_cursor(qt_application):
     assert session_window.cursor().shape() == PyQt6.QtCore.Qt.CursorShape.ArrowCursor
     assert canvas._cursor_overlay.isVisible() is False
     assert canvas._pointer_inside_canvas is False
+
+
+def test_mouse_debug_does_not_crash_on_press(qt_application, monkeypatch):
+    """RDP_MOUSE_DEBUG logging uses PyQt6 pointer APIs, not QMouseEvent.source()."""
+
+    monkeypatch.setenv("RDP_MOUSE_DEBUG", "1")
+
+    input_queue = queue.Queue()
+    canvas = rdp_client.qt_session_window.RdpCanvas()
+    canvas.set_input_queue(input_queue)
+    _configure_canvas_for_mouse_tests(canvas)
+
+    canvas.mousePressEvent(
+        _build_mouse_event(
+            PyQt6.QtCore.QEvent.Type.MouseButtonPress,
+            PyQt6.QtCore.QPoint(100, 100),
+            PyQt6.QtCore.Qt.MouseButton.LeftButton))
+
+    messages = _drain_mouse_messages(input_queue)
+
+    assert len(messages) == 1
+    assert messages[0].is_pressed is True

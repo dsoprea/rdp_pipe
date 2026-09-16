@@ -698,7 +698,12 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         if mouse_event is not None:
             qt_button_name = str(mouse_event.button())
             qt_buttons_name = str(mouse_event.buttons())
-            qt_source_name = str(mouse_event.source())
+            pointing_device = mouse_event.device()
+            qt_source_name = \
+                "pointer_type={pointer_type} device={device_name} device_type={device_type}".format(
+                    pointer_type=mouse_event.pointerType(),
+                    device_name=pointing_device.name(),
+                    device_type=pointing_device.type())
 
         rdp_client.mouse_debug.write_mouse_debug(
             "mouse {event_type_name} t={timestamp} qt_button={qt_button_name} "
