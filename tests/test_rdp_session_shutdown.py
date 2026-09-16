@@ -456,6 +456,109 @@ def test_terminate_signals_ext_out_queue_when_aardwolf_terminate_hangs():
     assert queue_item is None
 
 
+def test_can_request_graceful_rdp_shutdown_requires_mcs_channel():
+    """Graceful shutdown needs a joined MCS channel and server connect PDU."""
+
+    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection._RDPConnection__joined_channels = {}
+    connection._RDPConnection__server_connect_pdu = {"security": None}
+    connection._RDPConnection__connection = unittest.mock.Mock()
+
+    assert rdp_client.rdp_connection._can_request_graceful_rdp_shutdown(connection) is False
+
+
+def test_can_request_graceful_rdp_shutdown_true_when_session_ready():
+    """Graceful shutdown is allowed once MCS and server connect data exist."""
+
+    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection._RDPConnection__joined_channels = {"MCS": unittest.mock.Mock()}
+    connection._RDPConnection__server_connect_pdu = {"security": None}
+    connection._RDPConnection__connection = unittest.mock.Mock()
+
+    assert rdp_client.rdp_connection._can_request_graceful_rdp_shutdown(connection) is True
+
+
+async def _run_terminate_without_mcs_skips_send_disconnect():
+    """Terminate on a half-open connect must not call send_disconnect."""
+
+    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection._RDPConnection__terminate_called = False
+    connection._RDPConnection__joined_channels = {}
+    connection._RDPConnection__server_connect_pdu = None
+    connection._RDPConnection__connection = None
+    connection._RDPConnection__external_reader_task = None
+    connection._RDPConnection__x224_reader_task = None
+    connection.disconnected_evt = asyncio.Event()
+    connection.ext_out_queue = asyncio.Queue()
+
+    send_disconnect_calls = []
+
+    async def _track_send_disconnect(_self):
+        send_disconnect_calls.append(True)
+        return False, None
+
+    with unittest.mock.patch.object(
+            aardwolf.connection.RDPConnection,
+            "send_disconnect",
+            _track_send_disconnect):
+
+        await aardwolf.connection.RDPConnection.terminate(connection)
+
+    return send_disconnect_calls
+
+
+def test_terminate_without_mcs_skips_send_disconnect():
+    """Half-open teardown must not attempt MCS shutdown or warn."""
+
+    send_disconnect_calls = asyncio.run(_run_terminate_without_mcs_skips_send_disconnect())
+
+    assert send_disconnect_calls == []
+
+
+async def _run_terminate_suppresses_warning_on_connection_reset():
+    """Transport reset during shutdown is expected and must not warn."""
+
+    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection._RDPConnection__terminate_called = False
+    connection._RDPConnection__joined_channels = {"MCS": unittest.mock.Mock()}
+    connection._RDPConnection__server_connect_pdu = {"security": None}
+    connection._RDPConnection__connection = unittest.mock.AsyncMock()
+    connection._RDPConnection__external_reader_task = None
+    connection._RDPConnection__x224_reader_task = None
+    connection.disconnected_evt = asyncio.Event()
+    connection.ext_out_queue = asyncio.Queue()
+
+    async def _return_connection_reset(_self):
+        return None, ConnectionResetError("Connection lost")
+
+    with unittest.mock.patch.object(
+            aardwolf.connection.RDPConnection,
+            "send_disconnect",
+            _return_connection_reset):
+
+        await aardwolf.connection.RDPConnection.terminate(connection)
+
+
+def test_terminate_suppresses_warning_on_connection_reset(caplog):
+    """Connection reset during send_disconnect must not emit aardwolf shutdown warnings."""
+
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="aardwolf"):
+        asyncio.run(_run_terminate_suppresses_warning_on_connection_reset())
+
+    shutdown_warnings = [
+        record.message
+        for record in caplog.records
+        if record.message == "Error while requesting shutdown"]
+
+    assert shutdown_warnings == []
+
+
 def test_close_event_loop_with_no_pending_tasks_closes_loop():
     """An idle worker loop must still shut down asyncgens and close."""
 

@@ -3,7 +3,9 @@
 import asyncio
 import copy
 import datetime
+import errno
 import logging
+import traceback
 
 import aardwolf.commons.factory
 import aardwolf.commons.iosettings
@@ -53,6 +55,7 @@ import rdp_client.trust_store
 
 
 _LOGGER = logging.getLogger(__name__)
+_AARDWOLF_LOGGER = logging.getLogger("aardwolf")
 DISPLAY_CONTROL_CAPS_TIMEOUT_SECONDS = 10.0
 TERMINATE_DISCONNECT_TIMEOUT_SECONDS = 2.0
 
@@ -166,6 +169,117 @@ async def _patched_handle_out_data(
 
 
 aardwolf.connection.RDPConnection.handle_out_data = _patched_handle_out_data
+
+
+def _can_request_graceful_rdp_shutdown(connection) -> bool:
+    """Return True when the MCS shutdown PDU can be sent on a joined session."""
+
+    joined_channels = getattr(connection, "_RDPConnection__joined_channels", None)
+
+    if joined_channels is None:
+        return False
+
+    try:
+        joined_channels["MCS"]
+    except KeyError:
+        return False
+
+    server_connect_pdu = getattr(connection, "_RDPConnection__server_connect_pdu", None)
+
+    if server_connect_pdu is None:
+        return False
+
+    transport_connection = getattr(connection, "_RDPConnection__connection", None)
+
+    if transport_connection is None:
+        return False
+
+    return True
+
+
+def _is_expected_shutdown_failure(error: BaseException) -> bool:
+    """Return True when send_disconnect failed because the transport is already gone."""
+
+    if isinstance(error, (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)):
+        return True
+
+    if isinstance(error, OSError):
+
+        if error.errno in (
+                errno.ECONNRESET,
+                errno.EPIPE,
+                errno.ECONNABORTED,
+                errno.ENOTCONN,
+                errno.ETIMEDOUT):
+            return True
+
+    if isinstance(error, KeyError):
+        return True
+
+    return False
+
+
+async def _patched_aardwolf_terminate(self):
+    """Skip or silence graceful shutdown when the server or transport is already gone."""
+
+    try:
+
+        if getattr(self, "_RDPConnection__terminate_called", False) is True:
+            return True, None
+
+        self._RDPConnection__terminate_called = True
+
+        if _can_request_graceful_rdp_shutdown(self):
+
+            will_shutdown, shutdown_error = await self.send_disconnect()
+
+            if shutdown_error is not None:
+
+                if _is_expected_shutdown_failure(shutdown_error) is False:
+                    _AARDWOLF_LOGGER.warning("Error while requesting shutdown")
+
+            elif will_shutdown is False:
+                _AARDWOLF_LOGGER.warning(
+                    "Server refused to shutdown, proceeding with termination anyway...")
+
+        joined_channels = self._RDPConnection__joined_channels
+
+        for channel_name in joined_channels:
+            await joined_channels[channel_name].disconnect()
+
+        if self.ext_out_queue is not None:
+            await self.ext_out_queue.put(None)
+
+        external_reader_task = getattr(self, "_RDPConnection__external_reader_task", None)
+
+        if external_reader_task is not None:
+            external_reader_task.cancel()
+
+        x224_reader_task = getattr(self, "_RDPConnection__x224_reader_task", None)
+
+        if x224_reader_task is not None:
+            x224_reader_task.cancel()
+
+        return True, None
+
+    except Exception as error:
+        _AARDWOLF_LOGGER.error(
+            "Error: {error}, {traceback_text}".format(
+                error=error,
+                traceback_text=traceback.format_exc()))
+
+        return None, error
+
+    finally:
+        self.disconnected_evt.set()
+
+        transport_connection = getattr(self, "_RDPConnection__connection", None)
+
+        if transport_connection is not None:
+            await transport_connection.close()
+
+
+aardwolf.connection.RDPConnection.terminate = _patched_aardwolf_terminate
 
 _ORIGINAL_RDPECLIP_HANDLE_FORMAT_DATA_REQUEST = \
     aardwolf.extensions.RDPECLIP.channel.RDPECLIPChannel._handle_format_data_request
