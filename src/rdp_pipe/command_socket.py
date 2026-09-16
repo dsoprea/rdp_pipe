@@ -10,6 +10,7 @@ import traceback
 
 import rdp_pipe.rdp_input
 import rdp_pipe.rdp_session_core
+import rdp_pipe.runtime_paths
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -61,7 +62,8 @@ def parse_command_request(request_line: str) -> dict:
     return request_body
 
 
-DEFAULT_COMMAND_SOCKET_PATH = "/tmp/rdp.sock"
+DEFAULT_COMMAND_SOCKET_PATH = \
+    rdp_pipe.runtime_paths.build_default_command_socket_filepath()
 
 
 class CommandSocketClientError(Exception):

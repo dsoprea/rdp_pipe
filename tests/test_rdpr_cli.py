@@ -10,7 +10,7 @@ import rdp_pipe.entrypoint.rdpr
 
 
 def test_default_sock_filepath():
-    """Default socket path is /tmp/rdp.sock when omitted."""
+    """Default socket path is under the system temp directory when omitted."""
 
     parser = rdp_pipe.entrypoint.rdpr.build_argument_parser()
     arguments = parser.parse_args(["command_receive_geometry"])

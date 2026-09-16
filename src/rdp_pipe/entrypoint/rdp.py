@@ -5,11 +5,13 @@ import asyncio
 import signal
 import sys
 
+import rdp_pipe.command_socket
+import rdp_pipe.runtime_paths
+
 
 DEFAULT_VIDEO_WIDTH = 1280
 DEFAULT_VIDEO_HEIGHT = 800
 DEFAULT_COLOR_DEPTH = 32
-DEFAULT_PIPE_FILEPATH = "/tmp/rdp.sock"
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -30,12 +32,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--pipe",
         action="store_true",
-        help="enable JSON-line automation on {0}".format(DEFAULT_PIPE_FILEPATH))
-
-    parser.add_argument(
-        "--activity-stamp-filepath",
-        dest="activity_stamp_filepath",
-        help="touch this file on each remote framebuffer update")
+        help="enable JSON-line automation on {0}".format(
+            rdp_pipe.command_socket.DEFAULT_COMMAND_SOCKET_PATH))
 
     parser.add_argument(
         "--color-depth",
@@ -284,15 +282,18 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if arguments.pipe:
-        pipe_filepath = DEFAULT_PIPE_FILEPATH
+        pipe_filepath = rdp_pipe.command_socket.DEFAULT_COMMAND_SOCKET_PATH
     else:
         pipe_filepath = None
+
+    activity_stamp_filepath = \
+        rdp_pipe.runtime_paths.build_default_activity_stamp_filepath()
 
     if arguments.headless:
         return run_headless_session(
             connection_url,
             pipe_filepath,
-            arguments.activity_stamp_filepath,
+            activity_stamp_filepath,
             arguments.color_depth)
 
     sys.stderr.write("connecting...\n")
@@ -300,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     return run_gui_session(
         connection_url,
         pipe_filepath,
-        arguments.activity_stamp_filepath,
+        activity_stamp_filepath,
         arguments.color_depth,
         autoresize_enabled=not arguments.no_autoresize)
 

@@ -6,6 +6,7 @@ from unittest import mock
 
 import pytest
 
+import rdp_pipe.command_socket
 import rdp_pipe.entrypoint.rdp
 
 
@@ -37,31 +38,6 @@ def test_headless_with_pipe_parses():
 
     assert arguments.headless is True
     assert arguments.pipe is True
-
-
-def test_activity_stamp_filepath_parses():
-    """--activity-stamp-filepath is accepted in GUI and headless modes."""
-
-    parser = rdp_pipe.entrypoint.rdp.build_argument_parser()
-    arguments = parser.parse_args(
-        [
-            "--activity-stamp-filepath",
-            "/tmp/rdp-activity",
-            "10.0.0.5",
-        ])
-
-    assert arguments.activity_stamp_filepath == "/tmp/rdp-activity"
-
-    headless_arguments = parser.parse_args(
-        [
-            "--headless",
-            "--pipe",
-            "--activity-stamp-filepath",
-            "/tmp/rdp-activity",
-            "10.0.0.5",
-        ])
-
-    assert headless_arguments.activity_stamp_filepath == "/tmp/rdp-activity"
 
 
 def test_write_connection_progress_to_stderr_writes_step_label(capsys):
@@ -173,7 +149,7 @@ def test_headless_shutdown_signal_handler_stops_session():
                     headless_task = asyncio.create_task(
                         rdp_pipe.entrypoint.rdp.run_headless_session_async(
                             "rdp+ntlm-password://user@10.0.0.5",
-                            "/tmp/rdp.sock",
+                            rdp_pipe.command_socket.DEFAULT_COMMAND_SOCKET_PATH,
                             None,
                             32))
 

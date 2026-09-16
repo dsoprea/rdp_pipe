@@ -6,12 +6,14 @@ Automation clients drive an active RDP session through a **Unix domain stream so
 
 | Mode | Flag | Socket path |
 |------|------|-------------|
-| Headless (required) | `--headless --pipe` | `/tmp/rdp.sock` |
-| GUI (optional) | `--pipe` | `/tmp/rdp.sock` |
+| Headless (required) | `--headless --pipe` | `{system temp}/rdp.sock` |
+| GUI (optional) | `--pipe` | `{system temp}/rdp.sock` |
 
 Headless mode connects at a fixed **1280×800** session geometry. GUI mode may resize the remote desktop via MS-RDPEDISP when the server supports it; `receive_geometry` and `receive_screenshot` always reflect the current remote session size.
 
-The socket is created only after the RDP session connects successfully. In headless mode, connection progress is printed to stderr before the line `listening on /tmp/rdp.sock`.
+The socket is created only after the RDP session connects successfully. In headless mode, connection progress is printed to stderr before the line `listening on {system temp}/rdp.sock`.
+
+`{system temp}` is the process system temp directory (`tempfile.gettempdir()` — honors `$TMPDIR`; typically `/tmp` on Linux).
 
 ## Transport semantics
 
@@ -23,7 +25,7 @@ The socket is created only after the RDP session connects successfully. In headl
 - **Disconnect:** when the client closes the write side (or sends EOF), the server stops reading and accepts the next client
 - **Command timeout:** each command is executed on the RDP asyncio event loop with a **30 second** wall-clock limit; overrun surfaces as a socket-level failure rather than a JSON error response
 
-On startup, if `/tmp/rdp.sock` already exists, it is removed before `bind`.
+On startup, if the socket filepath already exists, it is removed before `bind`.
 
 ## Message envelope
 
@@ -271,7 +273,7 @@ rdpr command_send_geometry
 rdpr command_send_click 640 400 --button left
 rdpr command_send_key 'hello'
 rdpr command_send_key --key Return
-rdpr --sock-filepath /tmp/rdp.sock command_receive_screenshot --format png
+rdpr command_receive_screenshot --format png
 ```
 
 Each invocation sends one JSON-line request. Most subcommands print the full response envelope to stdout. `command_receive_screenshot` decodes `result.data`, writes a temporary file using `result.format` as the extension, prints the filepath on stdout, and prints `Image size: SIZE` (megabytes, two decimal places) plus a blank line on stderr. Exit code `0` on success; stderr `error: …` and exit code `1` when the server returns `ok: false` or the socket is unavailable.
@@ -279,16 +281,18 @@ Each invocation sends one JSON-line request. Most subcommands print the full res
 ### `nc` (one shot)
 
 ```bash
-printf '%s\n' '{"command":"receive_geometry"}' | nc -U /tmp/rdp.sock
+printf '%s\n' '{"command":"receive_geometry"}' | nc -U "${TMPDIR:-/tmp}/rdp.sock"
 ```
 
 ### Python
 
 ```python
 import json
+import os
 import socket
+import tempfile
 
-socket_path = "/tmp/rdp.sock"
+socket_path = os.path.join(tempfile.gettempdir(), "rdp.sock")
 request_line = json.dumps({"command": "receive_screenshot", "format": "png"}) + "\n"
 
 client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

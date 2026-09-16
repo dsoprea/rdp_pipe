@@ -6,8 +6,8 @@
 - Password from URL userinfo, `RDP_PASSWORD`, or stdin (`getpass` on a TTY; one line when piped)
 - Exits non-zero with a clear stderr message when password resolution fails
 - `--headless`: console-only mode (no PyQt6 window); requires `--pipe`
-- `--pipe`: Unix domain socket for JSON-line automation at `/tmp/rdp.sock` (optional in GUI mode, mandatory with `--headless`)
-- `--activity-stamp-filepath PATH`: touch `PATH` on each remote framebuffer update (for external watchdogs / idle detection)
+- `--pipe`: Unix domain socket for JSON-line automation at `{system temp}/rdp.sock` (optional in GUI mode, mandatory with `--headless`)
+- Touches `{system temp}/rdp_activity.stamp` on each remote framebuffer update (for external watchdogs / idle detection)
 - `--color-depth N`: session bits per pixel (`15`, `16`, `24`, or `32`; default `32`); sets `receive_geometry.color_depth` and the framebuffer used by `receive_screenshot`
 - Terminal Ctrl+C (SIGINT in the launching shell) disconnects cleanly and exits without a traceback in GUI and headless modes
 - Connect failures print a single managed stderr `error:` line with `host:port` and a short reason (no traceback); certificate fingerprint mismatch keeps the multi-line remediation format
@@ -16,7 +16,7 @@
 
 Send one automation command to a running `rdp` session (started with `--pipe`):
 
-- `--sock-filepath PATH`: Unix domain socket (default `/tmp/rdp.sock`)
+- `--sock-filepath PATH`: Unix domain socket (default `{system temp}/rdp.sock`)
 - Subcommands (wire names prefixed with `command_`): `command_receive_geometry`, `command_send_geometry`, `command_receive_screenshot`, `command_send_click`, `command_send_key`
 - Writes the full JSON response envelope to stdout for most subcommands (`{"ok": true, "result": {...}}` or error via stderr with exit code `1`); `command_receive_screenshot` by default writes decoded image bytes to a temporary file, prints the filepath on stdout, and prints `Image size: SIZE` (megabytes, two decimal places) plus a trailing blank line on stderr — pass `--no-write` to print the JSON envelope instead
 - One invocation sends one command; see [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md) for wire field details
@@ -27,9 +27,9 @@ Model Context Protocol server for LLM hosts (Cursor and others) that wraps `rdpr
 
 - Project config: [`mcp/mcp.json`](mcp/mcp.json) (`mcp/run_server.sh`; copy to `.cursor/mcp.json` for Cursor or merge into other hosts)
 - Launcher: `mcp/run_server.sh` (pyenv + `RDPR_COMMAND` wiring); server module: `mcp/server.py` (stdio transport)
-- Prerequisite: `rdp` running with `--pipe` on the command socket (default `/tmp/rdp.sock`)
+- Prerequisite: `rdp` running with `--pipe` on the command socket (default `{system temp}/rdp.sock`)
 - Install MCP support: `pip install -e ".[mcp]"` (after pyenv install per `.python-version`)
-- Environment: `RDPR_COMMAND` (default `rdpr` on `PATH`), `RDPR_SOCK_FILEPATH` (default `/tmp/rdp.sock`)
+- Environment: `RDPR_COMMAND` (default `rdpr` on `PATH`), `RDPR_SOCK_FILEPATH` (default `{system temp}/rdp.sock`)
 - Tools (one per `rdpr` subcommand): `command_receive_geometry`, `command_send_geometry`, `command_receive_screenshot`, `command_send_click`, `command_send_key`
 - `command_receive_screenshot` always invokes `rdpr` with `--no-write` and returns inline MCP image content plus width/height metadata (no temporary image file)
 - Other tools return the full JSON response envelope as text

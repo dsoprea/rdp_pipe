@@ -7,10 +7,10 @@ import subprocess
 import mcp.server.mcpserver.exceptions
 import mcp_types
 import mcp.server.mcpserver
-
+import rdp_pipe.command_socket
 
 DEFAULT_RDPR_COMMAND = "rdpr"
-DEFAULT_RDPR_SOCK_FILEPATH = "/tmp/rdp.sock"
+DEFAULT_RDPR_SOCK_FILEPATH = rdp_pipe.command_socket.DEFAULT_COMMAND_SOCKET_PATH
 RDPR_SUBPROCESS_TIMEOUT_SECONDS = 35
 
 

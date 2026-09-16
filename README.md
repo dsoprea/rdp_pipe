@@ -24,7 +24,7 @@ This project does not use virtualenv. Console scripts (`rdp`, `rdpr`) land on yo
 rdp [-h] [--headless] [--pipe] [--no-autoresize] URL
 ```
 
-GUI mode (default) opens a PyQt6 window. `--headless` runs without a display and **requires** `--pipe` for automation on `/tmp/rdp.sock`.
+GUI mode (default) opens a PyQt6 window. `--headless` runs without a display and **requires** `--pipe` for automation on the command socket under the system temp directory (`rdp.sock`).
 
 Press **Ctrl+C in the terminal** where you launched `rdp` to disconnect and exit cleanly (this does not affect keyboard input forwarded inside the session window).
 
@@ -94,16 +94,16 @@ Quick probe with `rdpr`:
 rdpr command_receive_geometry
 rdpr command_send_geometry 1920 1080
 rdpr command_send_click 640 400 --button left
-rdpr --sock-filepath /tmp/rdp.sock command_receive_screenshot --format png
+rdpr command_receive_screenshot --format png
 ```
 
 Or with `nc`:
 
 ```bash
-printf '%s\n' '{"command":"receive_geometry"}' | nc -U /tmp/rdp.sock
+printf '%s\n' '{"command":"receive_geometry"}' | nc -U "${TMPDIR:-/tmp}/rdp.sock"
 ```
 
-`--pipe` is optional in GUI mode (automation socket at `/tmp/rdp.sock` alongside the window).
+`--pipe` is optional in GUI mode (automation socket at `{system temp}/rdp.sock` alongside the window). Every session also touches `{system temp}/rdp_activity.stamp` on remote framebuffer updates.
 
 ### MCP automation
 
@@ -113,7 +113,7 @@ A standard MCP host config is provided at [`mcp/mcp.json`](mcp/mcp.json). It lau
 pip install -e ".[mcp]"
 ```
 
-Socket default: `/tmp/rdp.sock`.
+Socket default: `{system temp}/rdp.sock` (honors `$TMPDIR`; typically `/tmp` on Linux).
 
 For Cursor, copy or symlink into `.cursor/mcp.json` (that directory is gitignored):
 
