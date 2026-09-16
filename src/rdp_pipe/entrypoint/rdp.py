@@ -49,6 +49,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="do not resize the remote desktop when the local window changes size")
 
+    parser.add_argument(
+        "--viewer",
+        action="store_true",
+        help="ignore local mouse and keyboard input; screen updates only (command pipe unchanged)")
+
     return parser
 
 
@@ -75,7 +80,8 @@ def run_gui_session(
         command_socket_path: str | None,
         activity_stamp_filepath: str | None,
         color_depth: int,
-        autoresize_enabled: bool) -> int:
+        autoresize_enabled: bool,
+        viewer_mode: bool) -> int:
     """Launch the PyQt6 desktop client."""
 
     import PyQt6.QtCore
@@ -91,7 +97,8 @@ def run_gui_session(
         color_depth=color_depth,
         command_socket_path=command_socket_path,
         activity_stamp_filepath=activity_stamp_filepath,
-        autoresize_enabled=autoresize_enabled)
+        autoresize_enabled=autoresize_enabled,
+        viewer_mode=viewer_mode)
 
     session_window.show()
 
@@ -304,7 +311,8 @@ def main(argv: list[str] | None = None) -> int:
         pipe_filepath,
         activity_stamp_filepath,
         arguments.color_depth,
-        autoresize_enabled=not arguments.no_autoresize)
+        autoresize_enabled=not arguments.no_autoresize,
+        viewer_mode=arguments.viewer)
 
 
 if __name__ == "__main__":

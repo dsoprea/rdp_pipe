@@ -212,6 +212,37 @@ def test_leave_event_restores_arrow_cursor_after_blank_cursor(qt_application):
     assert canvas._pointer_inside_canvas is False
 
 
+def test_viewer_mode_ignores_mouse_and_keyboard(qt_application):
+    """--viewer blocks local mouse and keyboard forwarding to the RDP session."""
+
+    input_queue = queue.Queue()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
+    canvas.set_input_queue(input_queue)
+    canvas.set_viewer_mode(True)
+    _configure_canvas_for_mouse_tests(canvas)
+
+    widget_position = PyQt6.QtCore.QPoint(100, 100)
+    left_button = PyQt6.QtCore.Qt.MouseButton.LeftButton
+
+    canvas.mousePressEvent(
+        _build_mouse_event(
+            PyQt6.QtCore.QEvent.Type.MouseButtonPress,
+            widget_position,
+            left_button))
+
+    canvas._pointer_inside_canvas = True
+    key_event = PyQt6.QtGui.QKeyEvent(
+        PyQt6.QtCore.QEvent.Type.KeyPress,
+        PyQt6.QtCore.Qt.Key.Key_A,
+        PyQt6.QtCore.Qt.KeyboardModifier.NoModifier,
+        "a")
+    canvas.keyPressEvent(key_event)
+
+    messages = _drain_mouse_messages(input_queue)
+
+    assert messages == []
+
+
 def test_mouse_debug_does_not_crash_on_press(qt_application, monkeypatch):
     """RDP_MOUSE_DEBUG logging uses PyQt6 pointer APIs, not QMouseEvent.source()."""
 

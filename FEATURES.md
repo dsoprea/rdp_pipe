@@ -11,6 +11,7 @@
 - `--color-depth N`: session bits per pixel (`15`, `16`, `24`, or `32`; default `32`); sets `receive_geometry.color_depth` and the framebuffer used by `receive_screenshot`
 - Terminal Ctrl+C (SIGINT in the launching shell) disconnects cleanly and exits without a traceback in GUI and headless modes
 - Connect failures print a single managed stderr `error:` line with `host:port` and a short reason (no traceback); certificate fingerprint mismatch keeps the multi-line remediation format
+- `--viewer`: ignore local mouse and keyboard input (screen updates only); command-pipe automation is unchanged — for auditing a session without affecting it
 
 ## CLI (`rdpr`)
 
@@ -60,10 +61,10 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 - Connecting overlay: dimmed full-window modal centered on the session window listing connect steps (prepare, TCP/TLS, certificate trust, authentication, display configuration) until the session is ready
 - Shutting-down overlay: dimmed modal with indeterminate progress while the client disconnects and background threads exit
 - Resizable native window (default 1280×800) showing the remote framebuffer at 1:1 pixels (letterboxed when local and remote sizes differ)
-- Mouse move, press, release, double-click, and wheel forwarded while the cursor is over the canvas (no mouse grab)
+- Mouse move, press, release, double-click, and wheel forwarded while the cursor is over the canvas (no mouse grab); suppressed when `--viewer` is set
 - `RDP_MOUSE_DEBUG=1`: stderr trace of Qt mouse/context-menu events and mapped RDP button state (for diagnosing click issues)
 - Remote cursor shapes mirrored from the server (resize, I-beam, hand, etc.) via RDP pointer updates
-- Keyboard forwarded only while the pointer is inside the canvas
+- Keyboard forwarded only while the pointer is inside the canvas; suppressed when `--viewer` is set
 - Partial framebuffer updates from aardwolf `RDP_VIDEO` rectangles
 - Remote desktop wallpaper when the server provides it (client does not request `DISABLE_WALLPAPER` at connect)
 - Closing the window sends an RDP disconnect and waits for the session to end before the process exits

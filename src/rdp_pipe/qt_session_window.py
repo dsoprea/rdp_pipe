@@ -500,6 +500,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         self._cursor_overlay = RdpRemoteCursorOverlay(self)
         self._cursor_overlay.hide()
         self._input_queue: queue.Queue | None = None
+        self._viewer_mode = False
         self._right_button_press_forwarded = False
 
         self.setMinimumSize(0, 0)
@@ -543,6 +544,11 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         """Attach the queue used to forward mouse and keyboard events."""
 
         self._input_queue = input_queue
+
+    def set_viewer_mode(self, viewer_mode: bool):
+        """When True, ignore local mouse and keyboard events (screen updates only)."""
+
+        self._viewer_mode = viewer_mode
 
     def set_remote_dimensions(self, width: int, height: int):
         """Update remote resolution used for coordinate mapping and painting."""
@@ -621,6 +627,9 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
     def _enqueue_hover_at_widget_position(self, widget_position: PyQt6.QtCore.QPoint):
         """Forward a hover event for a widget-local pointer position."""
+
+        if self._viewer_mode:
+            return
 
         if self._input_queue is None:
             return
@@ -727,6 +736,9 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
             is_pressed: bool):
         """Put one RDP_MOUSE message on the input queue."""
 
+        if self._viewer_mode:
+            return
+
         if self._input_queue is None:
             return
 
@@ -777,6 +789,9 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
             is_pressed: bool,
             is_hover: bool,
             event_type_name: str):
+
+        if self._viewer_mode:
+            return
 
         if self._input_queue is None:
             return
@@ -840,6 +855,9 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
     def _enqueue_keyboard_event(self, key_event: PyQt6.QtGui.QKeyEvent, is_pressed: bool):
         """Forward scancode keyboard events when the pointer is inside the canvas."""
+
+        if self._viewer_mode:
+            return
 
         if self._pointer_inside_canvas is False:
             return
@@ -1210,7 +1228,8 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             color_depth: int = 32,
             command_socket_path: str | None = None,
             activity_stamp_filepath: str | None = None,
-            autoresize_enabled: bool = True):
+            autoresize_enabled: bool = True,
+            viewer_mode: bool = False):
 
         """Build UI, iosettings, and the asyncio/Qt bridge."""
 
@@ -1244,6 +1263,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._shutting_down_overlay = self._session_container.shutting_down_overlay
 
         self._canvas.set_input_queue(self._input_queue)
+        self._canvas.set_viewer_mode(viewer_mode)
         self._canvas.set_remote_dimensions(video_width, video_height)
         self._session_container.resize_requested.connect(self._handle_canvas_resize_requested)
 
