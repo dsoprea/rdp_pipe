@@ -2,6 +2,56 @@
 
 Postmortems for unintuitive defects caused by wire formats, library behavior, or platform defaults — so we do not re-learn them.
 
+## Double-click opens remote context menu (missing second press / stuck right button)
+
+### Symptom
+
+Double-clicking in the remote desktop sometimes opened a Windows context menu instead of performing the expected double-click action (open file, select word, etc.). Right-click worked when intentional; the failure was intermittent and looked like a left double-click had been reinterpreted as a right-click.
+
+### Root cause
+
+Several stacked input gaps in `RdpCanvas` ([`src/rdp_client/qt_session_window.py`](src/rdp_client/qt_session_window.py)):
+
+1. **No `mouseDoubleClickEvent`** — Qt replaces the second `MouseButtonPress` with `MouseButtonDblClick` on many platforms. We forwarded only press/release handlers, so the remote often saw `LEFT DOWN, LEFT UP, LEFT UP` (orphan release) instead of two full click pairs. RDP has no double-click flag; Windows synthesizes `WM_LBUTTONDBLCLK` only from two complete down/up sequences within the system interval.
+
+2. **Linux right-click release gap** — On Linux, Qt may deliver `QContextMenuEvent` on right-button press without a matching `mouseReleaseEvent`. We forwarded the press (`BUTTON2 DOWN`) but never the release, leaving the server with a stuck right button. Later left clicks or broken double-click timing could then surface as a context menu.
+
+3. **No spurious left→right mapping in code** — `RightButton` only reaches the wire when Qt reports it. Intermittent `RightButton` in traces points at touchpad secondary-click gestures or hardware bounce, not client button remapping.
+
+### Why it was tricky
+
+- Symptom looked like “double-click becomes right-click” but the wire path never mapped `BUTTON1` to `BUTTON2`.
+- Hover/pointer work was already correct (`MOUSEBUTTON_HOVER` → `PTRFLAGS.MOVE`), so the bug was isolated to click sequencing, not coordinate mapping.
+- Qt’s double-click sequence is four events (`Press, Release, DblClick, Release`), not two; missing the DblClick handler dropped the second down on builds that suppress the second press.
+
+### Journey
+
+1. Confirmed strict button map (`LeftButton` → `MOUSEBUTTON_LEFT`, `RightButton` → `MOUSEBUTTON_RIGHT`) in `_enqueue_mouse_event`.
+2. Traced Qt double-click delivery: `MouseButtonDblClick` was ignored entirely.
+3. Noted Linux `QContextMenuEvent` is sent on right press even when release is omitted — matches stuck-button hypothesis.
+4. Added `RDP_MOUSE_DEBUG=1` tracing before behavior changes to distinguish Qt `RightButton` delivery from server-side stuck state.
+
+### Fix
+
+| Area | Change |
+|------|--------|
+| Double-click | `mouseDoubleClickEvent` forwards the second press (`is_pressed=True`) using the same button map as `mousePressEvent`. |
+| Linux right-click | `setContextMenuPolicy(NoContextMenu)`; `contextMenuEvent` completes the click — sends `BUTTON2 UP` when a right press was already forwarded, otherwise sends full press+release. |
+| Event propagation | Mouse/wheel handlers call `accept()` and no longer call `super()` so parent widgets do not reinterpret gestures. |
+| Unmapped buttons | `XButton1` / back / forward buttons are ignored with optional debug log instead of `KeyError`. |
+| Diagnostics | [`src/rdp_client/mouse_debug.py`](src/rdp_client/mouse_debug.py) — `RDP_MOUSE_DEBUG=1` logs Qt event type, button, buttons, source, remote coordinates, and RDP button state. |
+
+### Prevention
+
+- Run `RDP_MOUSE_DEBUG=1 rdp …` and capture stderr when click behavior misbehaves; look for `RightButton` during a left double-click (input device) vs missing `is_pressed=False` after right press (release gap).
+- Unit tests in [`tests/test_qt_session_mouse.py`](tests/test_qt_session_mouse.py) lock the four-event double-click sequence and Linux-style context-menu completion.
+
+### References
+
+- Qt double-click sequence: `Press, Release, DblClick, Release` ([Qt Forum](https://forum.qt.io/topic/90542/click-signal-fired-when-i-double-click-is-this-normal))
+- `QContextMenuEvent` on Linux sent on press, independent of mouse event acceptance ([Qt docs](https://doc.qt.io/qt-6/qcontextmenuevent.html))
+- MS-RDPBCGR pointer input: no double-click bit; server infers from click pairs
+
 ## Window close during connect leaves aardwolf reader tasks pending
 
 ### Symptom

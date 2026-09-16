@@ -18,6 +18,7 @@ import rdp_client.command_socket
 import rdp_client.connection_progress
 import rdp_client.connection_url
 import rdp_client.display_control
+import rdp_client.mouse_debug
 import rdp_client.pointer_debug
 import rdp_client.qt_session_mapping
 import rdp_client.pointer_update
@@ -486,6 +487,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         self._cursor_overlay = RdpRemoteCursorOverlay(self)
         self._cursor_overlay.hide()
         self._input_queue: queue.Queue | None = None
+        self._right_button_press_forwarded = False
 
         self.setMinimumSize(0, 0)
         self.setSizePolicy(
@@ -493,6 +495,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
             PyQt6.QtWidgets.QSizePolicy.Policy.Ignored)
         self.setMouseTracking(True)
         self.setFocusPolicy(PyQt6.QtCore.Qt.FocusPolicy.StrongFocus)
+        self.setContextMenuPolicy(PyQt6.QtCore.Qt.ContextMenuPolicy.NoContextMenu)
 
         self._extended_key_map = {
             PyQt6.QtCore.Qt.Key.Key_End: "VK_END",
@@ -648,11 +651,114 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
         return PyQt6.QtCore.QPoint(mapped_position[0], mapped_position[1])
 
+    def _map_qt_mouse_button(
+            self,
+            qt_mouse_button: PyQt6.QtCore.Qt.MouseButton):
+        """Map a Qt mouse button to aardwolf MOUSEBUTTON, or None when unmapped."""
+
+        try:
+            return self._mouse_button_map[qt_mouse_button]
+        except KeyError:
+            if rdp_client.mouse_debug.is_mouse_debug_enabled():
+                rdp_client.mouse_debug.write_mouse_debug(
+                    "mouse unmapped qt_button={qt_mouse_button}".format(
+                        qt_mouse_button=qt_mouse_button))
+
+            return None
+
+    def _write_mouse_forward_debug(
+            self,
+            event_type_name: str,
+            mouse_event: PyQt6.QtGui.QMouseEvent | None,
+            remote_position: PyQt6.QtCore.QPoint,
+            button: aardwolf.commons.queuedata.constants.MOUSEBUTTON,
+            is_pressed: bool):
+        """Log one forwarded mouse message when RDP_MOUSE_DEBUG is enabled."""
+
+        if not rdp_client.mouse_debug.is_mouse_debug_enabled():
+            return
+
+        qt_button_name = "n/a"
+        qt_buttons_name = "n/a"
+        qt_source_name = "n/a"
+
+        if mouse_event is not None:
+            qt_button_name = str(mouse_event.button())
+            qt_buttons_name = str(mouse_event.buttons())
+            qt_source_name = str(mouse_event.source())
+
+        rdp_client.mouse_debug.write_mouse_debug(
+            "mouse {event_type_name} t={timestamp} qt_button={qt_button_name} "
+            "qt_buttons={qt_buttons_name} qt_source={qt_source_name} "
+            "remote=({remote_x}, {remote_y}) rdp_button={rdp_button_name} "
+            "is_pressed={is_pressed}".format(
+                event_type_name=event_type_name,
+                timestamp=time.monotonic(),
+                qt_button_name=qt_button_name,
+                qt_buttons_name=qt_buttons_name,
+                qt_source_name=qt_source_name,
+                remote_x=remote_position.x(),
+                remote_y=remote_position.y(),
+                rdp_button_name=button.name,
+                is_pressed=is_pressed))
+
+    def _enqueue_mouse_message_at_remote_position(
+            self,
+            remote_position: PyQt6.QtCore.QPoint,
+            button: aardwolf.commons.queuedata.constants.MOUSEBUTTON,
+            is_pressed: bool):
+        """Put one RDP_MOUSE message on the input queue."""
+
+        if self._input_queue is None:
+            return
+
+        mouse_message = aardwolf.commons.queuedata.mouse.RDP_MOUSE()
+        mouse_message.xPos = remote_position.x()
+        mouse_message.yPos = remote_position.y()
+        mouse_message.button = button
+        mouse_message.is_pressed = is_pressed
+
+        self._input_queue.put(mouse_message)
+
+    def _enqueue_right_click_at_remote_position(
+            self,
+            remote_position: PyQt6.QtCore.QPoint,
+            event_type_name: str):
+        """Forward a complete right-button press and release at remote coordinates."""
+
+        right_button = \
+            aardwolf.commons.queuedata.constants.MOUSEBUTTON.MOUSEBUTTON_RIGHT
+
+        self._enqueue_mouse_message_at_remote_position(
+            remote_position,
+            right_button,
+            True)
+        self._write_mouse_forward_debug(
+            event_type_name,
+            None,
+            remote_position,
+            right_button,
+            True)
+
+        self._enqueue_mouse_message_at_remote_position(
+            remote_position,
+            right_button,
+            False)
+        self._write_mouse_forward_debug(
+            event_type_name,
+            None,
+            remote_position,
+            right_button,
+            False)
+
+        self._right_button_press_forwarded = False
+
     def _enqueue_mouse_event(
             self,
             mouse_event: PyQt6.QtGui.QMouseEvent,
             is_pressed: bool,
-            is_hover: bool):
+            is_hover: bool,
+            event_type_name: str):
 
         if self._input_queue is None:
             return
@@ -664,7 +770,17 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
         button = aardwolf.commons.queuedata.constants.MOUSEBUTTON.MOUSEBUTTON_HOVER
         if is_hover is False:
-            button = self._mouse_button_map[mouse_event.button()]
+            mapped_button = self._map_qt_mouse_button(mouse_event.button())
+            if mapped_button is None:
+                return
+
+            button = mapped_button
+
+            if button == aardwolf.commons.queuedata.constants.MOUSEBUTTON.MOUSEBUTTON_RIGHT:
+                if is_pressed:
+                    self._right_button_press_forwarded = True
+                else:
+                    self._right_button_press_forwarded = False
 
         mouse_message = aardwolf.commons.queuedata.mouse.RDP_MOUSE()
         mouse_message.xPos = remote_position.x()
@@ -673,6 +789,14 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         mouse_message.is_pressed = is_pressed if is_hover is False else False
 
         self._input_queue.put(mouse_message)
+
+        if is_hover is False:
+            self._write_mouse_forward_debug(
+                event_type_name,
+                mouse_event,
+                remote_position,
+                button,
+                mouse_message.is_pressed)
 
         if is_hover and rdp_client.pointer_debug.is_pointer_debug_enabled():
             debug_now = time.monotonic()
@@ -893,14 +1017,83 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
     def mousePressEvent(self, mouse_event: PyQt6.QtGui.QMouseEvent):
         """Forward mouse press to the RDP session."""
 
-        self._enqueue_mouse_event(mouse_event, True, False)
-        super().mousePressEvent(mouse_event)
+        self._enqueue_mouse_event(
+            mouse_event,
+            True,
+            False,
+            "MouseButtonPress")
+        mouse_event.accept()
 
     def mouseReleaseEvent(self, mouse_event: PyQt6.QtGui.QMouseEvent):
         """Forward mouse release to the RDP session."""
 
-        self._enqueue_mouse_event(mouse_event, False, False)
-        super().mouseReleaseEvent(mouse_event)
+        self._enqueue_mouse_event(
+            mouse_event,
+            False,
+            False,
+            "MouseButtonRelease")
+        mouse_event.accept()
+
+    def mouseDoubleClickEvent(self, mouse_event: PyQt6.QtGui.QMouseEvent):
+        """Forward the second click press suppressed by Qt on some platforms."""
+
+        self._enqueue_mouse_event(
+            mouse_event,
+            True,
+            False,
+            "MouseButtonDblClick")
+        mouse_event.accept()
+
+    def contextMenuEvent(self, context_menu_event: PyQt6.QtGui.QContextMenuEvent):
+        """Complete right-click forwarding when Linux omits the release event."""
+
+        if rdp_client.mouse_debug.is_mouse_debug_enabled():
+            rdp_client.mouse_debug.write_mouse_debug(
+                "mouse ContextMenuEvent t={timestamp} reason={reason} pos=({pos_x}, {pos_y}) "
+                "right_press_pending={right_press_pending}".format(
+                    timestamp=time.monotonic(),
+                    reason=context_menu_event.reason(),
+                    pos_x=context_menu_event.pos().x(),
+                    pos_y=context_menu_event.pos().y(),
+                    right_press_pending=self._right_button_press_forwarded))
+
+        if context_menu_event.reason() != PyQt6.QtGui.QContextMenuEvent.Reason.Mouse:
+            context_menu_event.accept()
+
+            return
+
+        widget_position = self._widget_position_from_point(
+            PyQt6.QtCore.QPointF(
+                context_menu_event.pos().x(),
+                context_menu_event.pos().y()))
+        remote_position = self._map_widget_position_to_remote(widget_position)
+
+        if remote_position is None:
+            context_menu_event.accept()
+
+            return
+
+        right_button = \
+            aardwolf.commons.queuedata.constants.MOUSEBUTTON.MOUSEBUTTON_RIGHT
+
+        if self._right_button_press_forwarded:
+            self._enqueue_mouse_message_at_remote_position(
+                remote_position,
+                right_button,
+                False)
+            self._write_mouse_forward_debug(
+                "ContextMenuRelease",
+                None,
+                remote_position,
+                right_button,
+                False)
+            self._right_button_press_forwarded = False
+        else:
+            self._enqueue_right_click_at_remote_position(
+                remote_position,
+                "ContextMenuClick")
+
+        context_menu_event.accept()
 
     def mouseMoveEvent(self, mouse_event: PyQt6.QtGui.QMouseEvent):
         """Forward mouse movement while tracking is enabled."""
@@ -912,8 +1105,12 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         if self._bitmap_pointer_update is not None and self._bitmap_pointer_update.image is not None:
             self.setCursor(PyQt6.QtCore.Qt.CursorShape.BlankCursor)
 
-        self._enqueue_mouse_event(mouse_event, False, True)
-        super().mouseMoveEvent(mouse_event)
+        self._enqueue_mouse_event(
+            mouse_event,
+            False,
+            True,
+            "MouseMove")
+        mouse_event.accept()
 
     def wheelEvent(self, wheel_event: PyQt6.QtGui.QWheelEvent):
         """Forward wheel events as vertical mouse wheel buttons."""
@@ -936,21 +1133,16 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         else:
             button = aardwolf.commons.queuedata.constants.MOUSEBUTTON.MOUSEBUTTON_WHEEL_DOWN
 
-        press_message = aardwolf.commons.queuedata.mouse.RDP_MOUSE()
-        press_message.xPos = remote_position.x()
-        press_message.yPos = remote_position.y()
-        press_message.button = button
-        press_message.is_pressed = True
-        self._input_queue.put(press_message)
+        self._enqueue_mouse_message_at_remote_position(
+            remote_position,
+            button,
+            True)
+        self._enqueue_mouse_message_at_remote_position(
+            remote_position,
+            button,
+            False)
 
-        release_message = aardwolf.commons.queuedata.mouse.RDP_MOUSE()
-        release_message.xPos = remote_position.x()
-        release_message.yPos = remote_position.y()
-        release_message.button = button
-        release_message.is_pressed = False
-        self._input_queue.put(release_message)
-
-        super().wheelEvent(wheel_event)
+        wheel_event.accept()
 
     def keyPressEvent(self, key_event: PyQt6.QtGui.QKeyEvent):
         """Forward key press when the pointer is inside the canvas."""

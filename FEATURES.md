@@ -44,7 +44,8 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 - Connecting overlay: dimmed full-window modal centered on the session window listing connect steps (prepare, TCP/TLS, certificate trust, authentication, display configuration) until the session is ready
 - Shutting-down overlay: dimmed modal with indeterminate progress while the client disconnects and background threads exit
 - Resizable native window (default 1280×800) showing the remote framebuffer at 1:1 pixels (letterboxed when local and remote sizes differ)
-- Mouse move, press, release, and wheel forwarded while the cursor is over the canvas (no mouse grab)
+- Mouse move, press, release, double-click, and wheel forwarded while the cursor is over the canvas (no mouse grab)
+- `RDP_MOUSE_DEBUG=1`: stderr trace of Qt mouse/context-menu events and mapped RDP button state (for diagnosing click issues)
 - Remote cursor shapes mirrored from the server (resize, I-beam, hand, etc.) via RDP pointer updates
 - Keyboard forwarded only while the pointer is inside the canvas
 - Partial framebuffer updates from aardwolf `RDP_VIDEO` rectangles
