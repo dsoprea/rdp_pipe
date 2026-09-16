@@ -875,7 +875,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
         self._pointer_inside_canvas = False
         self._last_pointer_widget_position = None
-        self.unsetCursor()
+        self.setCursor(PyQt6.QtCore.Qt.CursorShape.ArrowCursor)
         self._cursor_overlay.clear_cursor()
         super().leaveEvent(leave_event)
 

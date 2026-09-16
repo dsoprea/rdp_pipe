@@ -2,6 +2,25 @@
 
 Postmortems for unintuitive defects caused by wire formats, library behavior, or platform defaults — so we do not re-learn them.
 
+## Cursor vanishes over native title bar after leaving canvas
+
+### Symptom
+
+While the remote cursor overlay worked over the session framebuffer, moving the pointer to the **native OS window title bar** (close/minimize chrome above the canvas) made the mouse cursor disappear entirely.
+
+### Root cause
+
+`RdpCanvas` hides the system cursor with **`BlankCursor`** while mirroring the remote pointer. On `leaveEvent` (pointer moves from canvas to WM title bar), the handler called **`unsetCursor()`**. On Linux/Qt, `unsetCursor()` after `BlankCursor` does not reliably restore a visible arrow over window-manager decoration — the same class of failure documented for overlay clears elsewhere in this client.
+
+### Fix
+
+In [`RdpCanvas.leaveEvent`](src/rdp_client/qt_session_window.py), replace `unsetCursor()` with **`setCursor(Qt.ArrowCursor)`** and keep clearing the remote overlay.
+
+### Prevention
+
+- Unit test: `test_leave_event_restores_arrow_cursor_after_blank_cursor` in [`tests/test_qt_session_mouse.py`](tests/test_qt_session_mouse.py).
+- When leaving the canvas for non-session chrome, always set an explicit visible cursor shape; do not rely on `unsetCursor()` after `BlankCursor`.
+
 ## Double-click opens remote context menu (missing second press / stuck right button)
 
 ### Symptom

@@ -184,3 +184,20 @@ def test_unmapped_button_does_not_crash(qt_application):
     messages = _drain_mouse_messages(input_queue)
 
     assert messages == []
+
+
+def test_leave_event_restores_arrow_cursor_after_blank_cursor(qt_application):
+    """Leaving the canvas for the native title bar restores a visible system arrow."""
+
+    canvas = rdp_client.qt_session_window.RdpCanvas()
+    _configure_canvas_for_mouse_tests(canvas)
+
+    canvas.setCursor(PyQt6.QtCore.Qt.CursorShape.BlankCursor)
+    canvas._cursor_overlay.set_pointer_position(PyQt6.QtCore.QPoint(100, 100))
+
+    leave_event = PyQt6.QtCore.QEvent(PyQt6.QtCore.QEvent.Type.Leave)
+    canvas.leaveEvent(leave_event)
+
+    assert canvas.cursor().shape() == PyQt6.QtCore.Qt.CursorShape.ArrowCursor
+    assert canvas._cursor_overlay.isVisible() is False
+    assert canvas._pointer_inside_canvas is False
