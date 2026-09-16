@@ -18,7 +18,7 @@ Send one automation command to a running `rdp` session (started with `--pipe`):
 
 - `--sock-filepath PATH`: Unix domain socket (default `/tmp/rdp.sock`)
 - Subcommands (wire names prefixed with `command_`): `command_receive_geometry`, `command_send_geometry`, `command_receive_screenshot`, `command_send_click`, `command_send_key`
-- Writes the full JSON response envelope to stdout for most subcommands (`{"ok": true, "result": {...}}` or error via stderr with exit code `1`); `command_receive_screenshot` instead writes decoded image bytes to a temporary file, prints the filepath on stdout, and prints `Image size: SIZE` (megabytes, two decimal places) plus a trailing blank line on stderr
+- Writes the full JSON response envelope to stdout for most subcommands (`{"ok": true, "result": {...}}` or error via stderr with exit code `1`); `command_receive_screenshot` by default writes decoded image bytes to a temporary file, prints the filepath on stdout, and prints `Image size: SIZE` (megabytes, two decimal places) plus a trailing blank line on stderr — pass `--no-write` to print the JSON envelope instead
 - One invocation sends one command; see [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md) for wire field details
 
 ## Command socket (automation)

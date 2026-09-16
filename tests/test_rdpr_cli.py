@@ -171,3 +171,41 @@ def test_receive_screenshot_writes_temp_file_and_prints_size(
     assert stderr_lines[0] == "Image size: {0:.2f}".format(expected_megabytes)
 
     os.remove(stdout_lines[0])
+
+
+def test_receive_screenshot_no_write_prints_json_response(
+        monkeypatch,
+        capsys):
+    """command_receive_screenshot --no-write prints the full JSON envelope."""
+
+    image_bytes = b"\x89PNG\r\n\x1a\nfake-image-bytes"
+    encoded_data = base64.standard_b64encode(image_bytes).decode("ascii")
+    response_body = {
+        "ok": True,
+        "result": {
+            "width": 1280,
+            "height": 800,
+            "format": "png",
+            "data": encoded_data,
+        },
+    }
+
+    def fake_send_command_request(_socket_path, _request_body):
+        return response_body
+
+    monkeypatch.setattr(
+        rdp_pipe.command_socket,
+        "send_command_request",
+        fake_send_command_request)
+
+    exit_code = rdp_pipe.entrypoint.rdpr.main(
+        ["command_receive_screenshot", "--format", "png", "--no-write"])
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out == \
+        '{"ok":true,"result":{"width":1280,"height":800,"format":"png","data":"' \
+        + encoded_data \
+        + '"}}\n'
+    assert captured.err == ""

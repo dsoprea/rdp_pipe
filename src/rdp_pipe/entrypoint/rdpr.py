@@ -80,6 +80,11 @@ def register_receive_screenshot_subparser(subparsers) -> None:
         default=9,
         help="PNG compress level 0-9 or JPEG quality 1-95 (default 9)")
 
+    receive_screenshot_parser.add_argument(
+        "--no-write",
+        action="store_true",
+        help="print the full JSON response envelope instead of writing a temporary image file")
+
 
 def register_send_click_subparser(subparsers) -> None:
     """Register command_send_click."""
@@ -282,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
 
     wire_command_name = wire_command_name_from_subcommand(arguments.subcommand)
 
-    if wire_command_name == "receive_screenshot":
+    if wire_command_name == "receive_screenshot" and arguments.no_write is False:
         print_receive_screenshot_result(response_body["result"])
 
         return 0
