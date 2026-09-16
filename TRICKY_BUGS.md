@@ -2,6 +2,42 @@
 
 Postmortems for unintuitive defects caused by wire formats, library behavior, or platform defaults — so we do not re-learn them.
 
+## RDPECLIP format-data request crashes on empty local clipboard
+
+### Symptom
+
+The session died during or shortly after connect with:
+
+```text
+aardwolf ERROR  Error: 'NoneType' object has no attribute 'datatype'
+  ...
+  RDPECLIP/channel.py line 347 in _handle_format_data_request
+    if fmtr.requestedFormatId == self.clipboard.data.datatype:
+```
+
+The traceback surfaced in the x224 reader task, so the whole RDP connection dropped.
+
+### Root cause
+
+aardwolf `RDPECLIPChannel._handle_format_data_request` assumes `iosettings.clipboard.data` is always set. `Clipboard.__init__` leaves `data = None` until the operator copies text/files into the session or pyperclip pushes data.
+
+During clipboard channel init the client still sends `CB_FORMAT_LIST` for every registered standard format (`CF_UNICODETEXT`, etc.). The remote Windows host may immediately send `CB_FORMAT_DATA_REQUEST` (for example when reconciling clipboard state). That path dereferenced `self.clipboard.data.datatype` and raised `AttributeError`, which `process_channel_data` re-raised and killed the reader.
+
+### Why it was tricky
+
+- The failure looked like a generic aardwolf bug in the clipboard extension, not our Qt input path.
+- Clipboard sync is optional and easy to overlook in testing when connect, video, and pointer work without ever pasting locally.
+- The advertised format list implies data is available even when `clipboard.data` is still `None`.
+
+### Fix
+
+Monkey-patch `RDPECLIPChannel._handle_format_data_request` in [`rdp_connection.py`](src/rdp_client/rdp_connection.py): when `clipboard.data is None`, send `CB_FORMAT_DATA_RESPONSE` with `CB_RESPONSE_FAIL` instead of touching `.datatype`. Delegate to the stock handler when local data exists.
+
+### Prevention
+
+- Unit test `test_empty_local_clipboard_answers_format_data_request_with_fail` in [`tests/test_rdpeclip_clipboard.py`](tests/test_rdpeclip_clipboard.py).
+- README monkey-patch table documents the RDPECLIP guard.
+
 ## Cursor vanishes over native title bar after leaving canvas
 
 ### Symptom

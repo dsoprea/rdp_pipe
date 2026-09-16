@@ -167,6 +167,36 @@ async def _patched_handle_out_data(
 
 aardwolf.connection.RDPConnection.handle_out_data = _patched_handle_out_data
 
+_ORIGINAL_RDPECLIP_HANDLE_FORMAT_DATA_REQUEST = \
+    aardwolf.extensions.RDPECLIP.channel.RDPECLIPChannel._handle_format_data_request
+
+
+async def _patched_rdpeclip_handle_format_data_request(self, format_data_request):
+    """Reply CB_RESPONSE_FAIL when the server requests clipboard data we do not hold."""
+
+    clipboard_data = self.clipboard.data
+
+    if clipboard_data is None:
+        _LOGGER.debug(
+            "RDPECLIP CB_FORMAT_DATA_REQUEST for format {format_id} with empty local clipboard".format(
+                format_id=format_data_request.requestedFormatId))
+
+        fail_response_message = \
+            aardwolf.extensions.RDPECLIP.protocol.CLIPRDR_HEADER.serialize_packet(
+                aardwolf.extensions.RDPECLIP.protocol.CB_TYPE.CB_FORMAT_DATA_RESPONSE,
+                aardwolf.extensions.RDPECLIP.protocol.CB_FLAG.CB_RESPONSE_FAIL,
+                None)
+
+        await self.fragment_and_send(fail_response_message)
+
+        return
+
+    return await _ORIGINAL_RDPECLIP_HANDLE_FORMAT_DATA_REQUEST(self, format_data_request)
+
+
+aardwolf.extensions.RDPECLIP.channel.RDPECLIPChannel._handle_format_data_request = \
+    _patched_rdpeclip_handle_format_data_request
+
 
 class RdpEdycChannel(aardwolf.extensions.RDPEDYC.channel.RDPEDYCChannel):
     """Dynamic virtual channel manager with client-initiated channel open."""
