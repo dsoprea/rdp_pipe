@@ -135,6 +135,36 @@ aardwolf `send_disconnect()` can also block on `MCS.out_queue.get()` during an i
 - [`src/rdp_client/rdp_session_thread.py`](src/rdp_client/rdp_session_thread.py)
 - [`src/rdp_client/rdp_connection.py`](src/rdp_client/rdp_connection.py)
 
+## Server drop triggers nested terminate and `await wasn't used with future`
+
+### Symptom
+
+When the RDP server closed the TCP connection (e.g. `BrokenPipeError` while sending mouse input), aardwolf logged a traceback ending in:
+
+```text
+RuntimeError: await wasn't used with future
+```
+
+at `RdpDesktopConnection._await_cancelled_aardwolf_reader_tasks` while awaiting `__x224_reader_task`.
+
+### Root cause
+
+aardwolf `handle_out_data` calls `await self.terminate()` on write failures. Our `RdpDesktopConnection.terminate()` drains reader tasks after aardwolf `terminate()` cancels them. aardwolf `__x224_reader` also has a `finally: await self.terminate()` — so the nested `terminate()` runs **inside** the x224 reader task and tried to `await` that same task (`asyncio.current_task()`), which raises on Python 3.14.
+
+### Fix
+
+- `terminate()` returns immediately when `_terminate_in_progress` is already set (outer call drains readers).
+- `_await_cancelled_aardwolf_reader_tasks()` skips `reader_task is asyncio.current_task()` and consumes finished-task exceptions without awaiting the current task.
+
+### Prevention
+
+- `test_terminate_from_x224_reader_finally_does_not_await_current_task` in [`tests/test_rdp_session_shutdown.py`](tests/test_rdp_session_shutdown.py).
+
+### References
+
+- aardwolf `handle_out_data` except path and `__x224_reader` `finally` in `aardwolf/connection.py`
+- [`src/rdp_client/rdp_connection.py`](src/rdp_client/rdp_connection.py) `terminate()` / `_await_cancelled_aardwolf_reader_tasks()`
+
 ## Cursor invert pixels lost on some backgrounds (RDP Qt client)
 
 ### Symptom

@@ -255,6 +255,7 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
         self._pointer_update_listener = None
         self._pointer_pdu_count_by_update_code: dict[int, int] = {}
         self._share_channel_task = None
+        self._terminate_in_progress = False
 
     def set_pointer_update_listener(self, listener):
         """Register a callback invoked immediately for each pointer PDU."""
@@ -315,38 +316,52 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
     async def terminate(self):
         """Cancel share-channel reactivation handling, then disconnect."""
 
-        # Stop draining MCS before send_disconnect waits on the same queue.
+        # aardwolf __x224_reader finally calls terminate() while that reader task
+        # is still current; the outer terminate() will drain reader tasks afterward.
 
-        share_channel_task = self._share_channel_task
-        if share_channel_task is not None:
+        if getattr(self, "_terminate_in_progress", False):
+            return True, None
 
-            self._share_channel_task = None
-            share_channel_task.cancel()
-
-            try:
-                await share_channel_task
-
-            except asyncio.CancelledError:
-                pass
-
-        # Bound send_disconnect so a mid-connect MCS wait cannot stall past
-        # the GUI shutdown join.
+        self._terminate_in_progress = True
+        terminate_result = True, None
 
         try:
-            aardwolf_terminate = aardwolf.connection.RDPConnection.terminate(self)
-            terminate_result = \
-                await asyncio.wait_for(
-                    aardwolf_terminate,
-                    timeout=TERMINATE_DISCONNECT_TIMEOUT_SECONDS)
 
-        except asyncio.TimeoutError:
+            # Stop draining MCS before send_disconnect waits on the same queue.
 
-            terminate_result = (None, None)
-            await self._close_aardwolf_transport()
+            share_channel_task = self._share_channel_task
+            if share_channel_task is not None:
 
-        await self._await_cancelled_aardwolf_reader_tasks()
+                self._share_channel_task = None
+                share_channel_task.cancel()
 
-        return terminate_result
+                try:
+                    await share_channel_task
+
+                except asyncio.CancelledError:
+                    pass
+
+            # Bound send_disconnect so a mid-connect MCS wait cannot stall past
+            # the GUI shutdown join.
+
+            try:
+                aardwolf_terminate = aardwolf.connection.RDPConnection.terminate(self)
+                terminate_result = \
+                    await asyncio.wait_for(
+                        aardwolf_terminate,
+                        timeout=TERMINATE_DISCONNECT_TIMEOUT_SECONDS)
+
+            except asyncio.TimeoutError:
+
+                terminate_result = (None, None)
+                await self._close_aardwolf_transport()
+
+            await self._await_cancelled_aardwolf_reader_tasks()
+
+            return terminate_result
+
+        finally:
+            self._terminate_in_progress = False
 
     async def _close_aardwolf_transport(self):
         """Close the aardwolf transport if terminate() timed out mid-disconnect."""
@@ -373,12 +388,19 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
 
         # aardwolf cancel()s these tasks but does not await them.
 
+        current_task = asyncio.current_task()
+
         for reader_task in reader_tasks:
 
             if reader_task is None:
                 continue
 
+            if reader_task is current_task:
+                continue
+
             if reader_task.done():
+                self._consume_reader_task_outcome(reader_task)
+
                 continue
 
             reader_task.cancel()
@@ -388,6 +410,17 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
 
             except asyncio.CancelledError:
                 pass
+
+            except Exception:
+                pass
+
+    def _consume_reader_task_outcome(self, reader_task: asyncio.Task):
+        """Retrieve a finished reader task result without awaiting the current task."""
+
+        if reader_task.cancelled():
+            return
+
+        reader_task.exception()
 
     async def connect(self):
         """Connect while capability-flag patching is active for Client Core Data."""

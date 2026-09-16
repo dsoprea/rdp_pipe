@@ -308,6 +308,47 @@ def test_terminate_awaits_cancelled_aardwolf_reader_tasks():
     assert external_done is True
 
 
+async def _simulate_x224_reader_finally_terminate(connection):
+    """Call terminate() from inside the x224 reader task like aardwolf does."""
+
+    connection._RDPConnection__x224_reader_task = asyncio.current_task()
+
+    external_coroutine = _wait_forever_on_event()
+    external_task = asyncio.create_task(external_coroutine)
+    connection._RDPConnection__external_reader_task = external_task
+
+    with unittest.mock.patch.object(
+            aardwolf.connection.RDPConnection,
+            "terminate",
+            _cancel_reader_tasks_and_return):
+
+        await connection.terminate()
+
+
+async def _run_nested_terminate_from_x224_reader():
+    """Exercise nested terminate while the x224 reader task is still current."""
+
+    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection._share_channel_task = None
+    connection._terminate_in_progress = False
+
+    reader_coroutine = _simulate_x224_reader_finally_terminate(connection)
+    reader_task = asyncio.create_task(reader_coroutine)
+
+    await reader_task
+
+    return reader_task.done()
+
+
+def test_terminate_from_x224_reader_finally_does_not_await_current_task():
+    """Nested terminate from __x224_reader finally must not await the current task."""
+
+    reader_done = asyncio.run(_run_nested_terminate_from_x224_reader())
+
+    assert reader_done is True
+
+
 def test_stop_cancels_connection_task_when_session_is_missing():
     """Cancel the connect task only when the session object does not exist yet."""
 
