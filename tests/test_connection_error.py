@@ -42,6 +42,15 @@ def test_describe_connection_failure_timeout():
     assert failure_reason == "connection timed out"
 
 
+def test_describe_connection_failure_connection_reset():
+    """ConnectionResetError maps to connection lost."""
+
+    failure_reason = rdp_client.connection_error.describe_connection_failure(
+        ConnectionResetError("Connection lost"))
+
+    assert failure_reason == "connection lost"
+
+
 def test_parse_connection_endpoint_default_port():
     """Bare host URLs use the default RDP port in endpoint messages."""
 

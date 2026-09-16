@@ -171,6 +171,29 @@ aardwolf `send_disconnect()` can also block on `MCS.out_queue.get()` during an i
 - [`src/rdp_client/rdp_session_thread.py`](src/rdp_client/rdp_session_thread.py)
 - [`src/rdp_client/rdp_connection.py`](src/rdp_client/rdp_connection.py)
 
+## Server drop wedges terminate before ext_out_queue None
+
+### Symptom
+
+When the RDP server closed the TCP connection (`ConnectionResetError: Connection lost` in aardwolf `handle_out_data`), the client logged aardwolf’s ERROR traceback but did not print `disconnected; reconnecting...` and never retried.
+
+### Root cause
+
+aardwolf `handle_out_data` catches write failures, logs them, and calls `await self.terminate()`. `terminate()` runs `send_disconnect()`, which calls `handle_out_data` again and then blocks on `MCS.out_queue.get()` for a shutdown reply that never arrives on a dead socket. Our `RdpDesktopConnection.terminate()` times out after 2s and closes the transport, but aardwolf never reached `ext_out_queue.put(None)` or `disconnected_evt.set()`. `run_until_stopped()` stayed blocked on `ext_out_queue.get()`, so the reconnect loop never ran.
+
+### Fix
+
+`RdpDesktopConnection.terminate()` always calls `_signal_disconnect_to_session_loops()` in `finally`: set `disconnected_evt` and enqueue `None` on `ext_out_queue` even when aardwolf terminate wedges.
+
+### Prevention
+
+- `test_terminate_signals_ext_out_queue_when_aardwolf_terminate_hangs` in [`tests/test_rdp_session_shutdown.py`](tests/test_rdp_session_shutdown.py).
+
+### References
+
+- aardwolf `handle_out_data` / `send_disconnect` / `terminate` in `aardwolf/connection.py`
+- [`src/rdp_client/rdp_connection.py`](src/rdp_client/rdp_connection.py) `_signal_disconnect_to_session_loops()`
+
 ## Server drop triggers nested terminate and `await wasn't used with future`
 
 ### Symptom

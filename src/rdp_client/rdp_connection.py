@@ -391,7 +391,24 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
             return terminate_result
 
         finally:
+            await self._signal_disconnect_to_session_loops()
             self._terminate_in_progress = False
+
+    async def _signal_disconnect_to_session_loops(self):
+        """Unblock run_until_stopped when aardwolf terminate wedges on send_disconnect."""
+
+        # aardwolf terminate only puts None after send_disconnect returns; a dead socket
+        # leaves MCS.out_queue.get() waiting and run_until_stopped never sees disconnect.
+
+        disconnected_event = getattr(self, "disconnected_evt", None)
+
+        if disconnected_event is not None:
+            disconnected_event.set()
+
+        output_queue = getattr(self, "ext_out_queue", None)
+
+        if output_queue is not None:
+            await output_queue.put(None)
 
     async def _close_aardwolf_transport(self):
         """Close the aardwolf transport if terminate() timed out mid-disconnect."""

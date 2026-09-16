@@ -414,6 +414,48 @@ def test_terminate_timeout_closes_aardwolf_transport():
     assert close_await_count == 1
 
 
+async def _run_terminate_signals_ext_out_queue_when_aardwolf_hangs():
+    """Terminate must unblock run_until_stopped when aardwolf never enqueues None."""
+
+    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection._share_channel_task = None
+    connection._RDPConnection__x224_reader_task = None
+    connection._RDPConnection__external_reader_task = None
+    connection._terminate_in_progress = False
+    connection.disconnected_evt = asyncio.Event()
+    connection.ext_out_queue = asyncio.Queue()
+
+    transport_connection = unittest.mock.AsyncMock()
+    connection._RDPConnection__connection = transport_connection
+
+    with unittest.mock.patch.object(
+            rdp_client.rdp_connection,
+            "TERMINATE_DISCONNECT_TIMEOUT_SECONDS",
+            0.05):
+
+        with unittest.mock.patch.object(
+                aardwolf.connection.RDPConnection,
+                "terminate",
+                _hang_until_cancelled):
+
+            terminate_task = asyncio.create_task(connection.terminate())
+            queue_item = await asyncio.wait_for(
+                connection.ext_out_queue.get(),
+                timeout=1.0)
+            await terminate_task
+
+    return queue_item
+
+
+def test_terminate_signals_ext_out_queue_when_aardwolf_terminate_hangs():
+    """A wedged aardwolf terminate must still signal ext_out_queue with None."""
+
+    queue_item = asyncio.run(_run_terminate_signals_ext_out_queue_when_aardwolf_hangs())
+
+    assert queue_item is None
+
+
 def test_close_event_loop_with_no_pending_tasks_closes_loop():
     """An idle worker loop must still shut down asyncgens and close."""
 

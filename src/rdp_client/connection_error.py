@@ -35,6 +35,12 @@ def describe_connection_failure(error: BaseException) -> str:
     if isinstance(error, asyncio.TimeoutError):
         return "connection timed out"
 
+    if isinstance(error, ConnectionResetError):
+        return "connection lost"
+
+    if isinstance(error, BrokenPipeError):
+        return "connection lost"
+
     if isinstance(error, OSError):
         if error.errno == errno.ECONNREFUSED:
             return "connection refused"
