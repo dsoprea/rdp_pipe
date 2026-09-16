@@ -274,7 +274,7 @@ rdpr command_send_key --key Return
 rdpr --sock-filepath /tmp/rdp.sock command_receive_screenshot --format png
 ```
 
-Each invocation sends one JSON-line request and prints the full response envelope to stdout. Exit code `0` on success; stderr `error: …` and exit code `1` when the server returns `ok: false` or the socket is unavailable.
+Each invocation sends one JSON-line request. Most subcommands print the full response envelope to stdout. `command_receive_screenshot` decodes `result.data`, writes a temporary file using `result.format` as the extension, prints the filepath on stdout, and prints `Image size: SIZE` (megabytes, two decimal places) plus a blank line on stderr. Exit code `0` on success; stderr `error: …` and exit code `1` when the server returns `ok: false` or the socket is unavailable.
 
 ### `nc` (one shot)
 

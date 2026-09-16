@@ -1,5 +1,8 @@
 """CLI validation tests for rdpr."""
 
+import base64
+import os
+
 import pytest
 
 import rdp_pipe.command_socket
@@ -118,3 +121,53 @@ def test_supported_commands_have_subparsers():
 
     assert set(rdp_pipe.entrypoint.rdpr.SUBPARSER_REGISTRARS_BY_WIRE_COMMAND.keys()) \
         == set(rdp_pipe.command_socket.SUPPORTED_COMMANDS)
+
+
+def test_receive_screenshot_writes_temp_file_and_prints_size(
+        monkeypatch,
+        capsys):
+    """command_receive_screenshot decodes data, writes a temp file, and prints size."""
+
+    image_bytes = b"\x89PNG\r\n\x1a\nfake-image-bytes"
+    encoded_data = base64.standard_b64encode(image_bytes).decode("ascii")
+    response_body = {
+        "ok": True,
+        "result": {
+            "width": 1280,
+            "height": 800,
+            "format": "png",
+            "data": encoded_data,
+        },
+    }
+
+    def fake_send_command_request(_socket_path, _request_body):
+        return response_body
+
+    monkeypatch.setattr(
+        rdp_pipe.command_socket,
+        "send_command_request",
+        fake_send_command_request)
+
+    exit_code = rdp_pipe.entrypoint.rdpr.main(
+        ["command_receive_screenshot", "--format", "png"])
+
+    captured = capsys.readouterr()
+    stdout_lines = captured.out.splitlines()
+    stderr_lines = captured.err.splitlines()
+
+    assert exit_code == 0
+    assert len(stdout_lines) == 1
+    assert stdout_lines[0].endswith(".png")
+    assert os.path.isfile(stdout_lines[0])
+
+    with open(stdout_lines[0], "rb") as screenshot_file:
+        written_bytes = screenshot_file.read()
+
+    assert written_bytes == image_bytes
+
+    expected_megabytes = len(image_bytes) / (1024 * 1024)
+    assert len(stderr_lines) == 2
+    assert stderr_lines[1] == ""
+    assert stderr_lines[0] == "Image size: {0:.2f}".format(expected_megabytes)
+
+    os.remove(stdout_lines[0])

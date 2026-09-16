@@ -1,8 +1,10 @@
 """Send one remote command to a running rdp session over its command socket."""
 
 import argparse
+import base64
 import json
 import sys
+import tempfile
 
 import rdp_pipe.command_socket
 
@@ -65,7 +67,7 @@ def register_receive_screenshot_subparser(subparsers) -> None:
 
     receive_screenshot_parser = subparsers.add_parser(
         subcommand_name,
-        help="capture the remote framebuffer as base64 PNG or JPEG")
+        help="capture the remote framebuffer to a temporary PNG or JPEG file")
 
     receive_screenshot_parser.add_argument(
         "--format",
@@ -220,6 +222,44 @@ def build_request_body_for_arguments(arguments: argparse.Namespace) -> dict:
             subcommand_name=arguments.subcommand))
 
 
+def write_receive_screenshot_result_to_temp_file(result: dict) -> tuple[str, float]:
+    """Decode base64 screenshot bytes and write them to a temporary file."""
+
+    image_format = result["format"]
+    encoded_data = result["data"]
+
+    # Decode wire-protocol base64 and persist image bytes using the server format.
+    image_bytes = base64.standard_b64decode(encoded_data)
+    temporary_file = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".{0}".format(image_format))
+
+    try:
+        temporary_file.write(image_bytes)
+
+    finally:
+        temporary_file.close()
+
+    screenshot_filepath = temporary_file.name
+    bytes_written = len(image_bytes)
+    megabytes_written = bytes_written / (1024 * 1024)
+
+    return screenshot_filepath, megabytes_written
+
+
+def print_receive_screenshot_result(result: dict) -> None:
+    """Write decoded screenshot data to a temp file and print path and size."""
+
+    screenshot_filepath, megabytes_written = \
+        write_receive_screenshot_result_to_temp_file(result)
+
+    sys.stdout.write(
+        "{filepath}\n".format(filepath=screenshot_filepath))
+    sys.stderr.write(
+        "Image size: {megabytes:.2f}\n".format(megabytes=megabytes_written))
+    sys.stderr.write("\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse argv, send one remote command, and print the JSON response."""
 
@@ -239,6 +279,13 @@ def main(argv: list[str] | None = None) -> int:
             "error: {message}\n".format(message=str(error)))
 
         return 1
+
+    wire_command_name = wire_command_name_from_subcommand(arguments.subcommand)
+
+    if wire_command_name == "receive_screenshot":
+        print_receive_screenshot_result(response_body["result"])
+
+        return 0
 
     response_line = json.dumps(response_body, separators=(",", ":"))
     sys.stdout.write(response_line)
