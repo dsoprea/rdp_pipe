@@ -952,6 +952,7 @@ def build_iosettings_with_display_control(
         wire_color_depth = 24
 
     iosettings.video_bpp_min = wire_color_depth
+    iosettings.clipboard_use_pyperclip = False
     iosettings.performance_flags = (
         iosettings.performance_flags
         & ~aardwolf.protocol.T125.extendedinfopacket.PERF.DISABLE_WALLPAPER

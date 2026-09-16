@@ -1219,6 +1219,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._command_server = None
         self._shutdown_started = False
         self._session_rdp_ready = False
+        self._clipboard_sync_from_remote = False
         self._video_width = video_width
         self._video_height = video_height
 
@@ -1262,7 +1263,11 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._worker.resolution_changed.connect(self._handle_resolution_changed)
         self._worker.display_caps_unavailable.connect(self._handle_display_caps_unavailable)
         self._worker.session_ready.connect(self._handle_session_ready)
+        self._worker.clipboard_text_ready.connect(self._handle_remote_clipboard_text)
         self._worker.connection_progress.connect(self._handle_connection_progress)
+
+        application_clipboard = PyQt6.QtWidgets.QApplication.clipboard()
+        application_clipboard.dataChanged.connect(self._handle_local_clipboard_changed)
 
         PyQt6.QtWidgets.QApplication.instance().aboutToQuit.connect(
             self._handle_application_about_to_quit)
@@ -1300,6 +1305,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._session_rdp_ready = True
 
         self._canvas.send_session_ready_pointer_hover()
+        self._push_current_local_clipboard_text()
 
         if self._command_socket_path is None:
             return
@@ -1318,6 +1324,41 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         """Apply a server pointer update to the session canvas."""
 
         self._canvas.apply_pointer_update(pointer_update)
+
+    def _push_current_local_clipboard_text(self):
+        """Forward the current Qt clipboard text to the remote session."""
+
+        if self._session_rdp_ready is False:
+            return
+
+        application_clipboard = PyQt6.QtWidgets.QApplication.clipboard()
+        mime_data = application_clipboard.mimeData()
+
+        if mime_data is None or mime_data.hasText() is False:
+            return
+
+        clipboard_text = mime_data.text()
+        self._worker.push_local_clipboard_text(clipboard_text)
+
+    def _handle_local_clipboard_changed(self):
+        """Push local clipboard changes to the remote host."""
+
+        if self._clipboard_sync_from_remote:
+            return
+
+        self._push_current_local_clipboard_text()
+
+    def _handle_remote_clipboard_text(self, clipboard_text: str):
+        """Place remote clipboard text on the local Qt clipboard."""
+
+        self._clipboard_sync_from_remote = True
+
+        try:
+            application_clipboard = PyQt6.QtWidgets.QApplication.clipboard()
+            application_clipboard.setText(clipboard_text)
+
+        finally:
+            self._clipboard_sync_from_remote = False
 
     def _handle_video_frame(self, video_frame: rdp_client.rdp_session_thread.RdpVideoFrame):
         """Blit a partial rectangle into the local QImage buffer."""

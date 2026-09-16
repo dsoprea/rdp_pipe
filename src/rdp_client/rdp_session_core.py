@@ -65,6 +65,7 @@ class RdpAsyncSession:
         self._resolution_changed_callbacks = []
         self._video_frame_callbacks = []
         self._pointer_update_callbacks = []
+        self._clipboard_text_callbacks = []
         self._progress_callback = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
 
@@ -118,6 +119,11 @@ class RdpAsyncSession:
         """Register callback(RdpPointerUpdate) for each server pointer update."""
 
         self._pointer_update_callbacks.append(callback)
+
+    def add_clipboard_text_callback(self, callback):
+        """Register callback(str) when the remote host places text on the clipboard."""
+
+        self._clipboard_text_callbacks.append(callback)
 
     def set_progress_callback(self, callback):
         """Register callback(step_identifier) for connection progress updates."""
@@ -210,6 +216,12 @@ class RdpAsyncSession:
         for callback in self._pointer_update_callbacks:
             callback(pointer_update)
 
+    def _dispatch_clipboard_text(self, clipboard_text: str):
+        """Deliver remote clipboard text without waiting behind video queue items."""
+
+        for callback in self._clipboard_text_callbacks:
+            callback(clipboard_text)
+
     async def drain_queued_pointer_updates(self):
         """Apply pointer updates queued during connect before the video drain loop."""
 
@@ -279,6 +291,14 @@ class RdpAsyncSession:
 
                 if self._stop_event.is_set():
                     return
+
+            elif output_item.type == aardwolf.commons.queuedata.RDPDATATYPE.CLIPBOARD_DATA_TXT:
+                self._dispatch_clipboard_text(output_item.data)
+
+    async def push_local_clipboard_text(self, clipboard_text: str):
+        """Advertise local clipboard text to the remote session via RDPECLIP."""
+
+        await self._connection.set_current_clipboard_text(clipboard_text)
 
     async def stop(self):
         """Signal the output loop to exit and terminate the connection."""

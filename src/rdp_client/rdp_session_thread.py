@@ -62,6 +62,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
     resolution_changed = PyQt6.QtCore.pyqtSignal(int, int)
     display_caps_unavailable = PyQt6.QtCore.pyqtSignal()
     session_ready = PyQt6.QtCore.pyqtSignal(object)
+    clipboard_text_ready = PyQt6.QtCore.pyqtSignal(str)
     connection_progress = PyQt6.QtCore.pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -148,6 +149,14 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
         self.resolution_changed.emit(width, height)
 
+    def _emit_clipboard_text(self, clipboard_text: str):
+        """Bridge remote clipboard text to the Qt main thread."""
+
+        if self._gui_stopped_event.is_set():
+            return
+
+        self.clipboard_text_ready.emit(clipboard_text)
+
     def _emit_connection_progress(self, step_identifier: str):
         """Bridge connection progress updates to the Qt signal."""
 
@@ -200,6 +209,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
                 self._session.add_video_frame_callback(self._emit_video_frame)
                 self._session.add_pointer_update_callback(self._emit_pointer_update)
                 self._session.add_resolution_changed_callback(self._emit_resolution_changed)
+                self._session.add_clipboard_text_callback(self._emit_clipboard_text)
                 self._session.set_progress_callback(self._emit_connection_progress)
 
                 await self._session.connect()
@@ -342,6 +352,30 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
             return False
 
         return True
+
+    @PyQt6.QtCore.pyqtSlot(str)
+    def push_local_clipboard_text(self, clipboard_text: str):
+        """Schedule a local clipboard update for the remote RDPECLIP channel."""
+
+        if self._session is None or self._event_loop is None:
+            return
+
+        if not self._event_loop.is_running():
+            return
+
+        clipboard_future = asyncio.run_coroutine_threadsafe(
+            self._session.push_local_clipboard_text(clipboard_text),
+            self._event_loop)
+        clipboard_future.add_done_callback(self._log_clipboard_future_result)
+
+    def _log_clipboard_future_result(self, clipboard_future):
+        """Surface RDPECLIP failures scheduled from the Qt thread."""
+
+        try:
+            clipboard_future.result()
+
+        except Exception:
+            _LOGGER.exception("RDPECLIP local clipboard update failed")
 
     @PyQt6.QtCore.pyqtSlot(int, int)
     def request_remote_resolution(self, width: int, height: int):

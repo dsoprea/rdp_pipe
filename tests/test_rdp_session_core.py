@@ -6,6 +6,7 @@ import io
 import types
 
 import aardwolf.commons.queuedata
+import aardwolf.commons.queuedata.clipboard
 import aardwolf.commons.queuedata.video
 import PIL.Image
 import pytest
@@ -196,6 +197,33 @@ async def test_run_until_stopped_exits_when_stop_event_set_without_queue_items(
     await asyncio.wait_for(
         asyncio.gather(drain_task, stop_task),
         timeout=2.0)
+
+
+async def test_push_local_clipboard_text_forwards_to_connection(connected_session):
+    """push_local_clipboard_text advertises text on the RDPECLIP channel."""
+
+    await connected_session.push_local_clipboard_text("hello from local")
+
+    assert connected_session.connection.clipboard_text_pushes == ["hello from local"]
+
+
+async def test_run_until_stopped_emits_clipboard_text(connected_session):
+    """CLIPBOARD_DATA_TXT queue items invoke registered clipboard callbacks."""
+
+    clipboard_texts = []
+    connected_session.add_clipboard_text_callback(clipboard_texts.append)
+
+    clipboard_data = aardwolf.commons.queuedata.clipboard.RDP_CLIPBOARD_DATA_TXT(
+        data="hello from remote")
+
+    drain_task = asyncio.create_task(connected_session.run_until_stopped())
+
+    await connected_session.connection.ext_out_queue.put(clipboard_data)
+    await connected_session.connection.ext_out_queue.put(None)
+
+    await asyncio.wait_for(drain_task, timeout=2.0)
+
+    assert clipboard_texts == ["hello from remote"]
 
 
 async def test_run_until_stopped_emits_video_frames(connected_session):

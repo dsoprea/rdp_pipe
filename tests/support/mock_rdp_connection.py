@@ -78,6 +78,7 @@ class MockRdpConnection:
         self.disconnected_evt = threading.Event()
         self.ext_out_queue = asyncio.Queue()
         self.ext_in_queue = asyncio.Queue()
+        self.clipboard_text_pushes = []
 
         iosettings, _display_control_channel = \
             rdp_client.rdp_connection.build_iosettings_with_display_control(
@@ -170,6 +171,11 @@ class MockRdpConnection:
         await self.display_control_channel.channel_data_in(caps_pdu_bytes)
 
         return True
+
+    async def set_current_clipboard_text(self, clipboard_text: str):
+        """Record local clipboard text forwarded to RDPECLIP."""
+
+        self.clipboard_text_pushes.append(clipboard_text)
 
     async def terminate(self):
         """Signal the output loop to stop."""

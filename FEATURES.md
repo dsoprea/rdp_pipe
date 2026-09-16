@@ -54,6 +54,7 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 - Remote desktop wallpaper when the server provides it (client does not request `DISABLE_WALLPAPER` at connect)
 - Closing the window sends an RDP disconnect and waits for the session to end before the process exits
 - Automatic reconnect: when the server drops or restarts, the client shows a reconnecting overlay, prints a managed stderr line (`error: RDP session to host:port disconnected; reconnecting...`), and retries until the session is back or the operator closes the window / presses Ctrl+C
+- Clipboard sync (text only): local Qt clipboard changes are forwarded to the remote session; remote copy updates the local clipboard (Unicode text via RDPECLIP)
 
 ## Seamless resize (MS-RDPEDISP)
 
@@ -81,5 +82,5 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 ## Known limitations
 
 - RDPDISP requires server support; some RDP implementations do not advertise display control and will not resize remotely
-- Clipboard, multi-monitor, drive redirection, and RemoteApp (RAIL) are not implemented
+- Clipboard file lists and non-text formats are not synced; multi-monitor, drive redirection, and RemoteApp (RAIL) are not implemented
 - aardwolf bitmap rendering path only; modern GFX/H.264 remoting may not apply

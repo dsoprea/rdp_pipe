@@ -53,6 +53,9 @@ async def test_run_connection_reconnects_after_disconnect(monkeypatch):
         def add_resolution_changed_callback(self, callback):
             pass
 
+        def add_clipboard_text_callback(self, callback):
+            pass
+
         def set_progress_callback(self, callback):
             pass
 
