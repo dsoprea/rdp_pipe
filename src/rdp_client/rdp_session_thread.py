@@ -17,6 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 
 SESSION_RECONNECT_DELAY_SECONDS = 1.0
 SESSION_RECONNECT_POLL_SECONDS = 0.1
+ASYNC_THREAD_FORCE_SHUTDOWN_JOIN_SECONDS = 2.0
 
 
 def close_event_loop_after_cancelling_pending_tasks(
@@ -302,7 +303,10 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
     def start(self):
         """Start the asyncio worker thread."""
 
-        self._async_thread = threading.Thread(target=self._async_thread_main)
+        self._async_thread = threading.Thread(
+            target=self._async_thread_main,
+            name="rdp-async-session",
+            daemon=True)
         self._async_thread.start()
 
     @PyQt6.QtCore.pyqtSlot()
@@ -330,6 +334,29 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
             if self._connection_task.done() is False:
                 self._event_loop.call_soon_threadsafe(self._connection_task.cancel)
 
+    def force_async_thread_shutdown(
+            self,
+            timeout_seconds: float = ASYNC_THREAD_FORCE_SHUTDOWN_JOIN_SECONDS) -> bool:
+        """Stop the asyncio loop and join the worker thread after a cooperative timeout."""
+
+        if self._event_loop is not None and self._event_loop.is_running():
+            self._event_loop.call_soon_threadsafe(self._event_loop.stop)
+
+        if self._async_thread is None:
+            return True
+
+        self._async_thread.join(timeout=timeout_seconds)
+
+        if self._async_thread.is_alive():
+
+            _LOGGER.warning(
+                "RDP async worker thread did not exit after forced loop stop within {timeout_seconds} seconds".format(
+                    timeout_seconds=timeout_seconds))
+
+            return False
+
+        return True
+
     def wait_for_shutdown(self, timeout_seconds: float) -> bool:
         """Block until the asyncio worker thread exits or timeout_seconds elapses."""
 
@@ -349,7 +376,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
                 if self._event_loop.is_running():
                     self._event_loop.call_soon_threadsafe(self._connection_task.cancel)
 
-            return False
+            return self.force_async_thread_shutdown()
 
         return True
 

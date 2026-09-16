@@ -134,6 +134,43 @@ def test_wait_for_shutdown_pumps_qt_events(qt_application):
     application.processEvents.assert_called()
 
 
+def test_close_event_quits_application(qt_application):
+    """Closing the window exits the Qt event loop after shutdown."""
+
+    session_window = rdp_client.qt_session_window.RdpSessionWindow.__new__(
+        rdp_client.qt_session_window.RdpSessionWindow)
+    session_window._shutdown_started = False
+    session_window._command_server = None
+    session_window._input_queue = queue.Queue()
+    session_window._shutting_down_overlay = unittest.mock.Mock()
+    session_window._worker = unittest.mock.Mock()
+    session_window._worker_thread = unittest.mock.Mock()
+    session_window._worker_thread.isRunning.return_value = False
+
+    close_event = unittest.mock.Mock()
+    application = unittest.mock.Mock()
+
+    with unittest.mock.patch.object(
+            rdp_client.qt_session_window.RdpSessionWindow,
+            "_wait_for_worker_shutdown_with_responsive_ui",
+            unittest.mock.Mock(return_value=True)):
+
+        with unittest.mock.patch.object(
+                rdp_client.qt_session_window.PyQt6.QtWidgets.QMainWindow,
+                "closeEvent",
+                unittest.mock.Mock()) as main_window_close_event:
+
+            with unittest.mock.patch.object(
+                    rdp_client.qt_session_window.PyQt6.QtWidgets.QApplication,
+                    "instance",
+                    unittest.mock.Mock(return_value=application)):
+
+                session_window.closeEvent(close_event)
+
+    application.quit.assert_called_once()
+    main_window_close_event.assert_called_once_with(close_event)
+
+
 def test_close_event_calls_wait_for_shutdown(qt_application):
     """Closing the window waits for the RDP session to disconnect."""
 
@@ -277,14 +314,15 @@ def test_stop_schedules_session_stop_when_session_exists():
 
 
 def test_wait_for_shutdown_timeout_cancels_connection_task_on_event_loop():
-    """A shutdown timeout must cancel the connection task on the worker loop."""
+    """A shutdown timeout must cancel the connection task and stop the asyncio loop."""
 
     worker = rdp_client.rdp_session_thread.RdpSessionWorker()
     worker._async_thread = unittest.mock.Mock()
-    worker._async_thread.is_alive.return_value = True
+    worker._async_thread.is_alive.side_effect = [True, False]
     worker._async_thread.join = unittest.mock.Mock()
 
     event_loop = unittest.mock.Mock()
+    event_loop.is_running.return_value = True
     connection_task = unittest.mock.Mock()
     connection_task.cancel = unittest.mock.Mock()
 
@@ -293,9 +331,27 @@ def test_wait_for_shutdown_timeout_cancels_connection_task_on_event_loop():
 
     shutdown_finished = worker.wait_for_shutdown(0.01)
 
-    assert shutdown_finished is False
-    event_loop.call_soon_threadsafe.assert_called_once_with(connection_task.cancel)
+    assert shutdown_finished is True
+    event_loop.call_soon_threadsafe.assert_any_call(connection_task.cancel)
+    event_loop.call_soon_threadsafe.assert_any_call(event_loop.stop)
     connection_task.cancel.assert_not_called()
+
+
+def test_force_async_thread_shutdown_stops_running_event_loop():
+    """Forced shutdown must stop a running asyncio loop on the worker thread."""
+
+    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    worker._async_thread = unittest.mock.Mock()
+    worker._async_thread.is_alive.return_value = False
+
+    event_loop = unittest.mock.Mock()
+    event_loop.is_running.return_value = True
+    worker._event_loop = event_loop
+
+    shutdown_finished = worker.force_async_thread_shutdown(timeout_seconds=0.01)
+
+    assert shutdown_finished is True
+    event_loop.call_soon_threadsafe.assert_called_once_with(event_loop.stop)
 
 
 def test_terminate_awaits_cancelled_aardwolf_reader_tasks():

@@ -33,8 +33,8 @@ CONNECTING_OVERLAY_PANEL_BACKGROUND = "#2b2b2b"
 
 DEFAULT_WINDOW_WIDTH = 1280
 DEFAULT_WINDOW_HEIGHT = 800
-SESSION_SHUTDOWN_TIMEOUT_SECONDS = 3.0
-WORKER_THREAD_SHUTDOWN_WAIT_MILLISECONDS = 500
+SESSION_SHUTDOWN_TIMEOUT_SECONDS = 5.0
+WORKER_THREAD_SHUTDOWN_WAIT_MILLISECONDS = 2000
 RESIZE_DEBOUNCE_MILLISECONDS = 250
 MOUSE_POINTER_DEBUG_INTERVAL_SECONDS = 0.5
 DEFAULT_SUPPRESS_SECONDS_AFTER_BITMAP = 0.1
@@ -1474,7 +1474,8 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             remaining_seconds = deadline - time.monotonic()
 
             if remaining_seconds <= 0:
-                return self._worker.wait_for_shutdown(0.0)
+                return self._worker.wait_for_shutdown(
+                    rdp_client.rdp_session_thread.ASYNC_THREAD_FORCE_SHUTDOWN_JOIN_SECONDS)
 
             application.processEvents(
                 PyQt6.QtCore.QEventLoop.ProcessEventsFlag.AllEvents,
@@ -1529,15 +1530,27 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
         self._input_queue.put(None)
         self._worker.stop()
-        self._wait_for_worker_shutdown_with_responsive_ui(
+        shutdown_finished = self._wait_for_worker_shutdown_with_responsive_ui(
             SESSION_SHUTDOWN_TIMEOUT_SECONDS)
+
+        if shutdown_finished is False:
+            self._worker.force_async_thread_shutdown()
+
         self._worker_thread.quit()
-        self._wait_for_qthread_with_responsive_ui(
+        qthread_finished = self._wait_for_qthread_with_responsive_ui(
             self._worker_thread,
             WORKER_THREAD_SHUTDOWN_WAIT_MILLISECONDS)
+
+        if qthread_finished is False:
+            _LOGGER.warning("RDP Qt worker thread did not exit after quit()")
 
     def closeEvent(self, close_event: PyQt6.QtGui.QCloseEvent):
         """Shut down input forwarding and wait for the RDP session to disconnect."""
 
         self._shutdown_session_resources()
         super().closeEvent(close_event)
+
+        application = PyQt6.QtWidgets.QApplication.instance()
+
+        if application is not None:
+            application.quit()
