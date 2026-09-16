@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "rdp_pipe": {
+      "command": "${workspaceFolder}/mcp/run_server.sh",
+      "env": {
+        "RDPR_SOCK_FILEPATH": "/tmp/rdp.sock"
+      }
+    }
+  }
+}

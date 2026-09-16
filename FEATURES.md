@@ -25,8 +25,8 @@ Send one automation command to a running `rdp` session (started with `--pipe`):
 
 Model Context Protocol server for LLM hosts (Cursor and others) that wraps `rdpr` subcommands:
 
-- Project config: [`.cursor/mcp.json`](.cursor/mcp.json) (clone-and-use; merge into other hosts as needed)
-- Server script: `script/rdpr_mcp_server.py` (stdio transport)
+- Project config: [`mcp/mcp.json`](mcp/mcp.json) (`mcp/run_server.sh`; copy to `.cursor/mcp.json` for Cursor or merge into other hosts)
+- Launcher: `mcp/run_server.sh` (pyenv + `RDPR_COMMAND` wiring); server module: `mcp/server.py` (stdio transport)
 - Prerequisite: `rdp` running with `--pipe` on the command socket (default `/tmp/rdp.sock`)
 - Install MCP support: `pip install -e ".[mcp]"` (after pyenv install per `.python-version`)
 - Environment: `RDPR_COMMAND` (default `rdpr` on `PATH`), `RDPR_SOCK_FILEPATH` (default `/tmp/rdp.sock`)

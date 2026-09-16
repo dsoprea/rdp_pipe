@@ -19,6 +19,9 @@ dev = [
     "pytest",
     "pytest-asyncio",
 ]
+mcp = [
+    "mcp",
+]
 
 [project.scripts]
 rdp = "rdp_pipe.entrypoint.rdp:main"

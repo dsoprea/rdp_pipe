@@ -107,13 +107,20 @@ printf '%s\n' '{"command":"receive_geometry"}' | nc -U /tmp/rdp.sock
 
 ### MCP automation
 
-Install the optional MCP extra, then enable the committed project config or copy its `rdp_pipe` entry into your host’s MCP settings:
+A standard MCP host config is provided at [`mcp/mcp.json`](mcp/mcp.json). It launches [`mcp/run_server.sh`](mcp/run_server.sh), which selects the pyenv interpreter from `.python-version`, sets `RDPR_COMMAND` to that environment’s `rdpr`, and runs `mcp/server.py`. Install the optional MCP extra into that interpreter, then copy the file or merge its `rdp_pipe` entry into your host’s MCP settings:
 
 ```bash
 pip install -e ".[mcp]"
 ```
 
-[`.cursor/mcp.json`](.cursor/mcp.json) launches `script/rdpr_mcp_server.py` with pyenv `python` and `rdpr` on `PATH` (socket `/tmp/rdp.sock`). For other MCP hosts, merge that entry and adjust paths.
+Socket default: `/tmp/rdp.sock`.
+
+For Cursor, copy or symlink into `.cursor/mcp.json` (that directory is gitignored):
+
+```bash
+mkdir -p .cursor
+cp mcp/mcp.json .cursor/mcp.json
+```
 
 Typical LLM flow with an active `rdp --pipe` session:
 
