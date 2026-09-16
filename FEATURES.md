@@ -12,7 +12,7 @@
 - Terminal Ctrl+C (SIGINT in the launching shell) disconnects cleanly and exits without a traceback in GUI and headless modes
 - Connect failures print a single managed stderr `error:` line with `host:port` and a short reason (no traceback); certificate fingerprint mismatch keeps the multi-line remediation format
 
-## CLI (`rdp_remote`)
+## CLI (`rdpr`)
 
 Send one automation command to a running `rdp` session (started with `--pipe`):
 

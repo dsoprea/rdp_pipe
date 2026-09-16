@@ -8,7 +8,7 @@ import rdp_pipe.command_socket
 
 
 def build_subcommand_name(wire_command_name: str) -> str:
-    """Map a wire command name to an rdp_remote subcommand name."""
+    """Map a wire command name to an rdpr subcommand name."""
 
     return "command_{wire_command_name}".format(wire_command_name=wire_command_name)
 
