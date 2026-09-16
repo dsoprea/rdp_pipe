@@ -128,6 +128,59 @@ Typical LLM flow with an active `rdp --pipe` session:
 2. `command_receive_screenshot` — capture state (inline image; server always passes `--no-write` to `rdpr`)
 3. `command_send_click` / `command_send_key` — act on the remote desktop
 
+#### MCP test prompt
+
+Paste this to an agent with **`rdp_pipe` connected** and a live **`rdp --headless --pipe`** (or GUI + `--pipe`) session:
+
+```text
+In RDP:
+1. take screenshot
+2. open calculator
+3. take screenshot
+4. close calculator
+5. take screenshot
+6. open command prompt
+7. take screenshot
+8. list directory
+9. take screenshot
+```
+
+Take a screenshot after steps **1**, **3**, **5**, **7**, and **9** only. After step **4**, confirm step **5** shows Calculator gone before opening Command Prompt.
+
+On Windows Server with legacy Calculator (`win32calc.exe`), search-box automation works for launch; close with `taskkill /F /IM win32calc.exe` from search (title-bar **X** clicks are unreliable over RDP). Open Command Prompt with search → `cmd` → Enter; run `dir` in the CMD window.
+
+#### MCP reference screenshots
+
+Committed captures from a successful run (1280×800 session) live under [`asset/mcp/screenshot/`](asset/mcp/screenshot/):
+
+| Step | Expected state | File |
+|------|----------------|------|
+| 1 | Clean desktop | [`01.png`](asset/mcp/screenshot/01.png) |
+| 3 | Calculator open | [`03.png`](asset/mcp/screenshot/03.png) |
+| 5 | Calculator closed | [`05.png`](asset/mcp/screenshot/05.png) |
+| 7 | Command Prompt open | [`07.png`](asset/mcp/screenshot/07.png) |
+| 9 | `dir` in `C:\Users\Administrator` | [`09.png`](asset/mcp/screenshot/09.png) |
+
+Step 1 — initial desktop:
+
+![MCP test step 1 — initial desktop](asset/mcp/screenshot/01.png)
+
+Step 3 — Calculator open:
+
+![MCP test step 3 — Calculator open](asset/mcp/screenshot/03.png)
+
+Step 5 — Calculator closed:
+
+![MCP test step 5 — Calculator closed](asset/mcp/screenshot/05.png)
+
+Step 7 — Command Prompt open:
+
+![MCP test step 7 — Command Prompt open](asset/mcp/screenshot/07.png)
+
+Step 9 — directory listing:
+
+![MCP test step 9 — dir output](asset/mcp/screenshot/09.png)
+
 Wire protocol details: **[REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md)**.
 
 ## Monkey-patching
