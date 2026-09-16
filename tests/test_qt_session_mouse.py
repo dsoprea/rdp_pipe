@@ -189,15 +189,24 @@ def test_unmapped_button_does_not_crash(qt_application):
 def test_leave_event_restores_arrow_cursor_after_blank_cursor(qt_application):
     """Leaving the canvas for the native title bar restores a visible system arrow."""
 
-    canvas = rdp_client.qt_session_window.RdpCanvas()
+    session_window = PyQt6.QtWidgets.QMainWindow()
+    session_container = rdp_client.qt_session_window.RdpSessionContainer()
+    session_window.setCentralWidget(session_container)
+    canvas = session_container.canvas
     _configure_canvas_for_mouse_tests(canvas)
+    session_window.show()
+    PyQt6.QtWidgets.QApplication.processEvents()
 
     canvas.setCursor(PyQt6.QtCore.Qt.CursorShape.BlankCursor)
+    session_container.setCursor(PyQt6.QtCore.Qt.CursorShape.BlankCursor)
+    session_window.setCursor(PyQt6.QtCore.Qt.CursorShape.BlankCursor)
     canvas._cursor_overlay.set_pointer_position(PyQt6.QtCore.QPoint(100, 100))
 
     leave_event = PyQt6.QtCore.QEvent(PyQt6.QtCore.QEvent.Type.Leave)
     canvas.leaveEvent(leave_event)
 
     assert canvas.cursor().shape() == PyQt6.QtCore.Qt.CursorShape.ArrowCursor
+    assert session_container.cursor().shape() == PyQt6.QtCore.Qt.CursorShape.ArrowCursor
+    assert session_window.cursor().shape() == PyQt6.QtCore.Qt.CursorShape.ArrowCursor
     assert canvas._cursor_overlay.isVisible() is False
     assert canvas._pointer_inside_canvas is False

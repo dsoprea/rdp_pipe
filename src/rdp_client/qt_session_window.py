@@ -858,6 +858,23 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
         self._input_queue.put(keyboard_message)
 
+    def _restore_visible_local_cursor_for_window_chrome(self):
+        """Restore a visible arrow on ancestors the WM title bar may inherit."""
+
+        arrow_cursor = PyQt6.QtCore.Qt.CursorShape.ArrowCursor
+
+        self.setCursor(arrow_cursor)
+
+        session_container = self.parentWidget()
+
+        if session_container is not None:
+            session_container.setCursor(arrow_cursor)
+
+        top_level_window = self.window()
+
+        if top_level_window is not None:
+            top_level_window.setCursor(arrow_cursor)
+
     def enterEvent(self, enter_event: PyQt6.QtGui.QEnterEvent):
         """Track pointer entry and focus the canvas for keyboard input."""
 
@@ -875,7 +892,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
         self._pointer_inside_canvas = False
         self._last_pointer_widget_position = None
-        self.setCursor(PyQt6.QtCore.Qt.CursorShape.ArrowCursor)
+        self._restore_visible_local_cursor_for_window_chrome()
         self._cursor_overlay.clear_cursor()
         super().leaveEvent(leave_event)
 

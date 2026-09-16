@@ -10,16 +10,16 @@ While the remote cursor overlay worked over the session framebuffer, moving the 
 
 ### Root cause
 
-`RdpCanvas` hides the system cursor with **`BlankCursor`** while mirroring the remote pointer. On `leaveEvent` (pointer moves from canvas to WM title bar), the handler called **`unsetCursor()`**. On Linux/Qt, `unsetCursor()` after `BlankCursor` does not reliably restore a visible arrow over window-manager decoration — the same class of failure documented for overlay clears elsewhere in this client.
+`RdpCanvas` hides the system cursor with **`BlankCursor`** while mirroring the remote pointer. On Linux/Qt, that blank shape can stick on the **top-level `QWindow`** and propagate to **native window-manager title bar** chrome even after the canvas widget sets `ArrowCursor` in `leaveEvent`. `unsetCursor()` after `BlankCursor` is equally unreliable. While dragging the title bar, the compositor shows its own move cursor; when the drag ends, Qt/WM chrome falls back to the still-blank window cursor.
 
 ### Fix
 
-In [`RdpCanvas.leaveEvent`](src/rdp_client/qt_session_window.py), replace `unsetCursor()` with **`setCursor(Qt.ArrowCursor)`** and keep clearing the remote overlay.
+In [`RdpCanvas.leaveEvent`](src/rdp_client/qt_session_window.py), call **`_restore_visible_local_cursor_for_window_chrome()`**, which sets **`ArrowCursor`** on the canvas, `RdpSessionContainer`, and **`self.window()`**, and clear the remote overlay.
 
 ### Prevention
 
-- Unit test: `test_leave_event_restores_arrow_cursor_after_blank_cursor` in [`tests/test_qt_session_mouse.py`](tests/test_qt_session_mouse.py).
-- When leaving the canvas for non-session chrome, always set an explicit visible cursor shape; do not rely on `unsetCursor()` after `BlankCursor`.
+- Unit test: `test_leave_event_restores_arrow_cursor_after_blank_cursor` in [`tests/test_qt_session_mouse.py`](tests/test_qt_session_mouse.py) (canvas, container, and top-level window).
+- When leaving the canvas for non-session chrome, always set an explicit visible cursor shape on the **top-level window**, not only the canvas; do not rely on `unsetCursor()` after `BlankCursor`.
 
 ## Double-click opens remote context menu (missing second press / stuck right button)
 
