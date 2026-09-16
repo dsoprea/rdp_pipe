@@ -6,8 +6,8 @@ import types
 
 import pytest
 
-import rdp_client.rdp_connection
-import rdp_client.rdp_session_core
+import rdp_pipe.rdp_connection
+import rdp_pipe.rdp_session_core
 
 import tests.support.mock_rdp_connection
 
@@ -35,7 +35,7 @@ def _patch_factory_from_url(monkeypatch, mock_connection):
         return stub_factory
 
     monkeypatch.setattr(
-        rdp_client.rdp_connection.RdpDesktopConnectionFactory,
+        rdp_pipe.rdp_connection.RdpDesktopConnectionFactory,
         "from_url",
         staticmethod(fake_from_url))
 
@@ -46,7 +46,7 @@ async def connected_session(monkeypatch, mock_rdp_connection):
 
     _patch_factory_from_url(monkeypatch, mock_rdp_connection)
 
-    session = rdp_client.rdp_session_core.RdpAsyncSession(
+    session = rdp_pipe.rdp_session_core.RdpAsyncSession(
         CONNECTION_URL,
         1280,
         800)
@@ -73,7 +73,7 @@ async def session_event_loop(monkeypatch, mock_rdp_connection):
         loop_holder["loop"] = event_loop
 
         async def connect_session():
-            session = rdp_client.rdp_session_core.RdpAsyncSession(
+            session = rdp_pipe.rdp_session_core.RdpAsyncSession(
                 CONNECTION_URL,
                 1280,
                 800)

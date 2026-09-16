@@ -64,9 +64,9 @@ def validate_arguments(parser: argparse.ArgumentParser, arguments: argparse.Name
 def write_connection_progress_to_stderr(step_identifier: str):
     """Write one labeled connection step to stderr for headless operators."""
 
-    import rdp_client.connection_progress
+    import rdp_pipe.connection_progress
 
-    step_label = rdp_client.connection_progress.get_connection_step_label(
+    step_label = rdp_pipe.connection_progress.get_connection_step_label(
         step_identifier)
 
     sys.stderr.write("{step_label}\n".format(step_label=step_label))
@@ -83,10 +83,10 @@ def run_gui_session(
     import PyQt6.QtCore
     import PyQt6.QtWidgets
 
-    import rdp_client.qt_session_window
+    import rdp_pipe.qt_session_window
 
     qt_application = PyQt6.QtWidgets.QApplication(sys.argv)
-    session_window = rdp_client.qt_session_window.RdpSessionWindow(
+    session_window = rdp_pipe.qt_session_window.RdpSessionWindow(
         connection_url,
         DEFAULT_VIDEO_WIDTH,
         DEFAULT_VIDEO_HEIGHT,
@@ -121,11 +121,11 @@ async def run_headless_session_async(
 
     """Connect headlessly, serve automation commands, and reconnect after drops."""
 
-    import rdp_client.command_socket
-    import rdp_client.connection_error
-    import rdp_client.connection_progress
-    import rdp_client.rdp_session_core
-    import rdp_client.rdp_session_thread
+    import rdp_pipe.command_socket
+    import rdp_pipe.connection_error
+    import rdp_pipe.connection_progress
+    import rdp_pipe.rdp_session_core
+    import rdp_pipe.rdp_session_thread
 
     command_server = None
     current_session = None
@@ -155,9 +155,9 @@ async def run_headless_session_async(
 
             if had_successful_session:
                 write_connection_progress_to_stderr(
-                    rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING)
+                    rdp_pipe.connection_progress.CONNECTION_STEP_RECONNECTING)
 
-            session = rdp_client.rdp_session_core.RdpAsyncSession(
+            session = rdp_pipe.rdp_session_core.RdpAsyncSession(
                 connection_url,
                 DEFAULT_VIDEO_WIDTH,
                 DEFAULT_VIDEO_HEIGHT,
@@ -174,7 +174,7 @@ async def run_headless_session_async(
                 connect_succeeded = True
 
                 if command_server is None:
-                    command_server = rdp_client.command_socket.CommandSocketServer(
+                    command_server = rdp_pipe.command_socket.CommandSocketServer(
                         command_socket_path,
                         session)
 
@@ -191,7 +191,7 @@ async def run_headless_session_async(
 
                 if connect_succeeded and shutdown_requested is False:
                     disconnected_stderr = \
-                        rdp_client.connection_error.format_session_disconnected_reconnecting_stderr(
+                        rdp_pipe.connection_error.format_session_disconnected_reconnecting_stderr(
                             connection_url)
                     sys.stderr.write(disconnected_stderr)
 
@@ -202,12 +202,12 @@ async def run_headless_session_async(
 
                 if connect_succeeded:
                     session_ended_stderr = \
-                        rdp_client.connection_error.format_session_ended_stderr(error)
+                        rdp_pipe.connection_error.format_session_ended_stderr(error)
                     sys.stderr.write(session_ended_stderr)
 
                 else:
                     connection_failure_stderr = \
-                        rdp_client.connection_error.format_connection_failure_stderr(
+                        rdp_pipe.connection_error.format_connection_failure_stderr(
                             connection_url,
                             error)
                     sys.stderr.write(connection_failure_stderr)
@@ -223,7 +223,7 @@ async def run_headless_session_async(
                 break
 
             reconnect_deadline = \
-                event_loop.time() + rdp_client.rdp_session_thread.SESSION_RECONNECT_DELAY_SECONDS
+                event_loop.time() + rdp_pipe.rdp_session_thread.SESSION_RECONNECT_DELAY_SECONDS
 
             while shutdown_requested is False:
 
@@ -233,7 +233,7 @@ async def run_headless_session_async(
                     break
 
                 sleep_seconds = \
-                    rdp_client.rdp_session_thread.SESSION_RECONNECT_POLL_SECONDS
+                    rdp_pipe.rdp_session_thread.SESSION_RECONNECT_POLL_SECONDS
 
                 if remaining_seconds < sleep_seconds:
                     sleep_seconds = remaining_seconds
@@ -268,16 +268,16 @@ def run_headless_session(
 def main(argv: list[str] | None = None) -> int:
     """Resolve credentials, then run GUI or headless mode."""
 
-    import rdp_client.connection_url
+    import rdp_pipe.connection_url
 
     parser = build_argument_parser()
     arguments = parser.parse_args(argv)
     validate_arguments(parser, arguments)
 
     try:
-        connection_url = rdp_client.connection_url.prepare_connection_url(arguments.url)
+        connection_url = rdp_pipe.connection_url.prepare_connection_url(arguments.url)
 
-    except rdp_client.connection_url.ConnectionUrlError as error:
+    except rdp_pipe.connection_url.ConnectionUrlError as error:
         sys.stderr.write(
             "error: {message}\n".format(message=str(error)))
 

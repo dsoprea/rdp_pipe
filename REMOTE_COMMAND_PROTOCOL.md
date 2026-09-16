@@ -1,6 +1,6 @@
 # Remote command protocol
 
-Automation clients drive an active RDP session through a **Unix domain stream socket** using **newline-delimited JSON**. Each request is one UTF-8 line; each response is one UTF-8 line. The protocol is implemented by `rdp_client.command_socket.CommandSocketServer` and is available when the `rdp` CLI is started with `--pipe`.
+Automation clients drive an active RDP session through a **Unix domain stream socket** using **newline-delimited JSON**. Each request is one UTF-8 line; each response is one UTF-8 line. The protocol is implemented by `rdp_pipe.command_socket.CommandSocketServer` and is available when the `rdp` CLI is started with `--pipe`.
 
 ## Enabling the socket
 
@@ -322,11 +322,11 @@ Typical automation loop:
 
 | Piece | Module |
 |-------|--------|
-| Socket server, dispatch, envelopes | `src/rdp_client/command_socket.py` |
-| Command handlers (screenshot, input) | `src/rdp_client/rdp_session_core.py` |
-| Mouse / keyboard message builders | `src/rdp_client/rdp_input.py` |
-| CLI `--pipe` / `--headless` wiring | `src/rdp_client/entrypoint/rdp.py` |
-| Remote command CLI | `src/rdp_client/entrypoint/rdp_remote.py` |
-| GUI socket startup | `src/rdp_client/qt_session_window.py` |
+| Socket server, dispatch, envelopes | `src/rdp_pipe/command_socket.py` |
+| Command handlers (screenshot, input) | `src/rdp_pipe/rdp_session_core.py` |
+| Mouse / keyboard message builders | `src/rdp_pipe/rdp_input.py` |
+| CLI `--pipe` / `--headless` wiring | `src/rdp_pipe/entrypoint/rdp.py` |
+| Remote command CLI | `src/rdp_pipe/entrypoint/rdp_remote.py` |
+| GUI socket startup | `src/rdp_pipe/qt_session_window.py` |
 
 Supported command names are listed in `SUPPORTED_COMMANDS` in `command_socket.py`.

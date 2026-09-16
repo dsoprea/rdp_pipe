@@ -7,10 +7,10 @@ import queue
 import threading
 import PyQt6.QtCore
 
-import rdp_client.connection_error
-import rdp_client.connection_progress
-import rdp_client.pointer_update
-import rdp_client.rdp_session_core
+import rdp_pipe.connection_error
+import rdp_pipe.connection_progress
+import rdp_pipe.pointer_update
+import rdp_pipe.rdp_session_core
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ def close_event_loop_after_cancelling_pending_tasks(
         event_loop.close()
 
 
-class RdpVideoFrame(rdp_client.rdp_session_core.RdpVideoFrame):
+class RdpVideoFrame(rdp_pipe.rdp_session_core.RdpVideoFrame):
     """Partial framebuffer update emitted to the Qt main thread."""
 
     pass
@@ -101,7 +101,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
         self._color_depth = None
         self._activity_stamp_filepath = None
         self._input_queue = None
-        self._session: rdp_client.rdp_session_core.RdpAsyncSession | None = None
+        self._session: rdp_pipe.rdp_session_core.RdpAsyncSession | None = None
         self._event_loop = None
         self._gui_stopped_event = threading.Event()
         self._async_thread_finished_event = threading.Event()
@@ -128,7 +128,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
         self._activity_stamp_filepath = activity_stamp_filepath
         self._input_queue = input_queue
 
-    def get_session(self) -> rdp_client.rdp_session_core.RdpAsyncSession | None:
+    def get_session(self) -> rdp_pipe.rdp_session_core.RdpAsyncSession | None:
         """Return the active session after session_ready fires."""
 
         return self._session
@@ -146,7 +146,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
                 self._session.connection.ext_in_queue.put_nowait,
                 input_item)
 
-    def _emit_video_frame(self, video_frame: rdp_client.rdp_session_core.RdpVideoFrame):
+    def _emit_video_frame(self, video_frame: rdp_pipe.rdp_session_core.RdpVideoFrame):
         """Bridge core video frames to the Qt signal."""
 
         if self._gui_stopped_event.is_set():
@@ -161,7 +161,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
         self.video_frame_ready.emit(qt_video_frame)
 
-    def _emit_pointer_update(self, pointer_update: rdp_client.pointer_update.RdpPointerUpdate):
+    def _emit_pointer_update(self, pointer_update: rdp_pipe.pointer_update.RdpPointerUpdate):
         """Bridge server pointer updates to the Qt signal."""
 
         if self._gui_stopped_event.is_set():
@@ -257,13 +257,13 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
             if had_successful_session:
                 self.connection_progress.emit(
-                    rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING)
+                    rdp_pipe.connection_progress.CONNECTION_STEP_RECONNECTING)
 
             connect_succeeded = False
             self._input_forwarder_future = None
 
             try:
-                self._session = rdp_client.rdp_session_core.RdpAsyncSession(
+                self._session = rdp_pipe.rdp_session_core.RdpAsyncSession(
                     self._connection_url,
                     self._video_width,
                     self._video_height,
@@ -295,7 +295,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
                 if connect_succeeded and self._gui_stopped_event.is_set() is False:
                     disconnected_stderr = \
-                        rdp_client.connection_error.format_session_disconnected_reconnecting_stderr(
+                        rdp_pipe.connection_error.format_session_disconnected_reconnecting_stderr(
                             self._connection_url)
                     sys.stderr.write(disconnected_stderr)
 
@@ -306,12 +306,12 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
                 if connect_succeeded:
                     session_ended_stderr = \
-                        rdp_client.connection_error.format_session_ended_stderr(error)
+                        rdp_pipe.connection_error.format_session_ended_stderr(error)
                     sys.stderr.write(session_ended_stderr)
 
                 elif self._gui_stopped_event.is_set() is False:
                     connection_failure_stderr = \
-                        rdp_client.connection_error.format_connection_failure_stderr(
+                        rdp_pipe.connection_error.format_connection_failure_stderr(
                             self._connection_url,
                             error)
                     sys.stderr.write(connection_failure_stderr)

@@ -6,14 +6,14 @@ import unittest.mock
 import aardwolf.protocol.fastpath
 import aardwolf.protocol.fastpath.pointer
 
-import rdp_client.pointer_update
-import rdp_client.rdp_connection
+import rdp_pipe.pointer_update
+import rdp_pipe.rdp_connection
 
 
 def test_build_rgba_image_from_monochrome_masks_opaque_black_pixel():
     """A 1x1 monochrome pointer with AND=0 and XOR=0 decodes to opaque black."""
 
-    rgba_image = rdp_client.pointer_update.build_rgba_image_from_pointer_masks(
+    rgba_image = rdp_pipe.pointer_update.build_rgba_image_from_pointer_masks(
         1,
         1,
         1,
@@ -27,7 +27,7 @@ def test_build_rgba_image_from_monochrome_masks_opaque_black_pixel():
 def test_build_rgba_image_from_monochrome_masks_transparent_pixel():
     """A 1x1 monochrome pointer with AND=1 and XOR=0 decodes to transparent."""
 
-    rgba_image = rdp_client.pointer_update.build_rgba_image_from_pointer_masks(
+    rgba_image = rdp_pipe.pointer_update.build_rgba_image_from_pointer_masks(
         1,
         1,
         1,
@@ -50,19 +50,19 @@ def test_fixup_24bpp_rgba_image_from_missing_and_mask_makes_black_matte_transpar
         0x00, 0x00,
     ])
 
-    rgba_image = rdp_client.pointer_update.build_rgba_image_from_pointer_masks(
+    rgba_image = rdp_pipe.pointer_update.build_rgba_image_from_pointer_masks(
         2,
         2,
         24,
         xor_mask_data,
         and_mask_data)
 
-    assert rdp_client.pointer_update.count_pointer_image_visible_pixels(rgba_image) == 4
+    assert rdp_pipe.pointer_update.count_pointer_image_visible_pixels(rgba_image) == 4
 
     fixed_rgba_image = \
-        rdp_client.pointer_update.fixup_24bpp_rgba_image_from_missing_and_mask(rgba_image)
+        rdp_pipe.pointer_update.fixup_24bpp_rgba_image_from_missing_and_mask(rgba_image)
 
-    assert rdp_client.pointer_update.count_pointer_image_visible_pixels(fixed_rgba_image) == 1
+    assert rdp_pipe.pointer_update.count_pointer_image_visible_pixels(fixed_rgba_image) == 1
     assert fixed_rgba_image.getpixel((1, 0)) == (255, 255, 255, 255)
 
 
@@ -80,14 +80,14 @@ def test_build_rgba_image_from_32bpp_masks_respects_alpha_channel():
         0x00, 0x00,
     ])
 
-    rgba_image = rdp_client.pointer_update.build_rgba_image_from_pointer_masks(
+    rgba_image = rdp_pipe.pointer_update.build_rgba_image_from_pointer_masks(
         2,
         2,
         32,
         xor_mask_data,
         and_mask_data)
 
-    assert rdp_client.pointer_update.count_pointer_image_visible_pixels(rgba_image) == 1
+    assert rdp_pipe.pointer_update.count_pointer_image_visible_pixels(rgba_image) == 1
     assert rgba_image.getpixel((0, 0)) == (255, 255, 255, 255)
     assert rgba_image.getpixel((1, 0)) == (0, 0, 0, 0)
 
@@ -106,7 +106,7 @@ def test_build_rgba_image_from_monochrome_masks_uses_top_down_scanlines():
         0x00, 0x00,
     ])
 
-    rgba_image = rdp_client.pointer_update.build_rgba_image_from_pointer_masks(
+    rgba_image = rdp_pipe.pointer_update.build_rgba_image_from_pointer_masks(
         2,
         2,
         1,
@@ -130,7 +130,7 @@ def test_build_rgba_image_from_color_masks_uses_bottom_up_xor_scanlines():
         0x00, 0x00,
     ])
 
-    rgba_image = rdp_client.pointer_update.build_rgba_image_from_pointer_masks(
+    rgba_image = rdp_pipe.pointer_update.build_rgba_image_from_pointer_masks(
         2,
         2,
         24,
@@ -147,15 +147,15 @@ def test_build_rgba_image_from_color_masks_uses_bottom_up_xor_scanlines():
 def test_pointer_cache_stores_and_resolves_cached_index():
     """CACHED pointer updates resolve through the pointer cache."""
 
-    pointer_cache = rdp_client.pointer_update.RdpPointerCache()
-    rgba_image = rdp_client.pointer_update.build_rgba_image_from_pointer_masks(
+    pointer_cache = rdp_pipe.pointer_update.RdpPointerCache()
+    rgba_image = rdp_pipe.pointer_update.build_rgba_image_from_pointer_masks(
         1,
         1,
         1,
         b"\x00",
         b"\x00")
 
-    stored_update = rdp_client.pointer_update.RdpPointerUpdate.build_bitmap(
+    stored_update = rdp_pipe.pointer_update.RdpPointerUpdate.build_bitmap(
         0,
         0,
         rgba_image)
@@ -171,26 +171,26 @@ def test_pointer_cache_stores_and_resolves_cached_index():
 def test_get_last_stored_bitmap_update_returns_highest_cache_index():
     """Hydration after connect uses the most recently stored cache entry."""
 
-    pointer_cache = rdp_client.pointer_update.RdpPointerCache()
-    first_image = rdp_client.pointer_update.build_rgba_image_from_pointer_masks(
+    pointer_cache = rdp_pipe.pointer_update.RdpPointerCache()
+    first_image = rdp_pipe.pointer_update.build_rgba_image_from_pointer_masks(
         1,
         1,
         1,
         b"\x00",
         b"\x00")
-    second_image = rdp_client.pointer_update.build_rgba_image_from_pointer_masks(
+    second_image = rdp_pipe.pointer_update.build_rgba_image_from_pointer_masks(
         1,
         1,
         1,
         b"\xFF",
         b"\x00")
 
-    first_update = rdp_client.pointer_update.RdpPointerUpdate.build_bitmap(
+    first_update = rdp_pipe.pointer_update.RdpPointerUpdate.build_bitmap(
         0,
         0,
         first_image,
         cache_index=1)
-    second_update = rdp_client.pointer_update.RdpPointerUpdate.build_bitmap(
+    second_update = rdp_pipe.pointer_update.RdpPointerUpdate.build_bitmap(
         0,
         0,
         second_image,
@@ -210,17 +210,17 @@ def test_extract_pointer_mask_bytes_corrects_aardwolf_swapped_masks():
     height = 32
     xor_bits_per_pixel = 32
     expected_xor_byte_count = \
-        rdp_client.pointer_update.compute_expected_xor_mask_byte_count(
+        rdp_pipe.pointer_update.compute_expected_xor_mask_byte_count(
             width,
             height,
             xor_bits_per_pixel)
     expected_and_byte_count = \
-        rdp_client.pointer_update.compute_expected_and_mask_byte_count(width, height)
+        rdp_pipe.pointer_update.compute_expected_and_mask_byte_count(width, height)
 
     xor_mask_data = bytes([index % 256 for index in range(expected_xor_byte_count)])
     and_mask_data = bytes([0xFF] * expected_and_byte_count)
 
-    corrected_xor, corrected_and = rdp_client.pointer_update.extract_pointer_mask_bytes(
+    corrected_xor, corrected_and = rdp_pipe.pointer_update.extract_pointer_mask_bytes(
         width,
         height,
         xor_bits_per_pixel,
@@ -251,7 +251,7 @@ def test_monochrome_beam_pointer_with_all_and_bits_set_uses_invert_mask():
     ])
 
     rgba_image, invert_mask_image = \
-        rdp_client.pointer_update.build_pointer_images_from_pointer_masks(
+        rdp_pipe.pointer_update.build_pointer_images_from_pointer_masks(
             2,
             2,
             1,
@@ -261,7 +261,7 @@ def test_monochrome_beam_pointer_with_all_and_bits_set_uses_invert_mask():
     assert rgba_image.getpixel((0, 1)) == (0, 0, 0, 0)
     assert invert_mask_image.getpixel((0, 1)) == 255
     assert invert_mask_image.getpixel((1, 1)) == 255
-    assert rdp_client.pointer_update.pointer_image_has_visible_pixels(
+    assert rdp_pipe.pointer_update.pointer_image_has_visible_pixels(
         rgba_image,
         invert_mask_image)
 
@@ -270,7 +270,7 @@ def test_build_pointer_images_marks_monochrome_invert_pixels():
     """1x1 AND=1 XOR=1 decodes to transparent RGBA with the invert mask set."""
 
     rgba_image, invert_mask_image = \
-        rdp_client.pointer_update.build_pointer_images_from_pointer_masks(
+        rdp_pipe.pointer_update.build_pointer_images_from_pointer_masks(
             1,
             1,
             1,
@@ -285,7 +285,7 @@ def test_build_composited_pointer_inverts_white_background_to_black():
     """Framebuffer inversion over white yields black cursor pixels."""
 
     rgba_image, invert_mask_image = \
-        rdp_client.pointer_update.build_pointer_images_from_pointer_masks(
+        rdp_pipe.pointer_update.build_pointer_images_from_pointer_masks(
             1,
             1,
             1,
@@ -295,7 +295,7 @@ def test_build_composited_pointer_inverts_white_background_to_black():
     def sample_white_background(widget_x: int, widget_y: int):
         return 255, 255, 255
 
-    composited_image = rdp_client.pointer_update.build_composited_pointer_rgba_image(
+    composited_image = rdp_pipe.pointer_update.build_composited_pointer_rgba_image(
         rgba_image,
         invert_mask_image,
         0,
@@ -309,7 +309,7 @@ def test_build_composited_pointer_inverts_black_background_to_white():
     """Framebuffer inversion over black yields white cursor pixels."""
 
     rgba_image, invert_mask_image = \
-        rdp_client.pointer_update.build_pointer_images_from_pointer_masks(
+        rdp_pipe.pointer_update.build_pointer_images_from_pointer_masks(
             1,
             1,
             1,
@@ -319,7 +319,7 @@ def test_build_composited_pointer_inverts_black_background_to_white():
     def sample_black_background(widget_x: int, widget_y: int):
         return 0, 0, 0
 
-    composited_image = rdp_client.pointer_update.build_composited_pointer_rgba_image(
+    composited_image = rdp_pipe.pointer_update.build_composited_pointer_rgba_image(
         rgba_image,
         invert_mask_image,
         0,
@@ -343,7 +343,7 @@ def test_parse_color_pointer_update_data_reads_xor_before_and():
     )
 
     cache_index, hotspot_x, hotspot_y, width, height, xor_mask_data, and_mask_data = \
-        rdp_client.pointer_update.parse_color_pointer_update_data(color_update_data)
+        rdp_pipe.pointer_update.parse_color_pointer_update_data(color_update_data)
 
     assert cache_index == 3
     assert hotspot_x == 1
@@ -358,32 +358,32 @@ def test_process_pointer_fastpath_update_default_restores_system_cursor():
     """PTR_DEFAULT clears a previously applied bitmap cursor such as the busy spinner."""
 
     connection = unittest.mock.Mock()
-    connection._pointer_cache = rdp_client.pointer_update.RdpPointerCache()
+    connection._pointer_cache = rdp_pipe.pointer_update.RdpPointerCache()
     fastpath_update = unittest.mock.Mock()
     fastpath_update.updateCode = aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.PTR_DEFAULT
 
     pointer_update = asyncio.run(
-        rdp_client.rdp_connection._process_pointer_fastpath_update(
+        rdp_pipe.rdp_connection._process_pointer_fastpath_update(
             connection,
             fastpath_update))
 
-    assert pointer_update.kind == rdp_client.pointer_update.RdpPointerUpdateKind.DEFAULT
+    assert pointer_update.kind == rdp_pipe.pointer_update.RdpPointerUpdateKind.DEFAULT
 
 
 def test_process_pointer_fastpath_update_null_hides_pointer():
     """PTR_NULL maps to a hidden-pointer update for the GUI layer."""
 
     connection = unittest.mock.Mock()
-    connection._pointer_cache = rdp_client.pointer_update.RdpPointerCache()
+    connection._pointer_cache = rdp_pipe.pointer_update.RdpPointerCache()
     fastpath_update = unittest.mock.Mock()
     fastpath_update.updateCode = aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.PTR_NULL
 
     pointer_update = asyncio.run(
-        rdp_client.rdp_connection._process_pointer_fastpath_update(
+        rdp_pipe.rdp_connection._process_pointer_fastpath_update(
             connection,
             fastpath_update))
 
-    assert pointer_update.kind == rdp_client.pointer_update.RdpPointerUpdateKind.HIDDEN
+    assert pointer_update.kind == rdp_pipe.pointer_update.RdpPointerUpdateKind.HIDDEN
 
 
 def test_build_bitmap_pointer_update_from_color_attribute_round_trip():
@@ -401,14 +401,14 @@ def test_build_bitmap_pointer_update_from_color_attribute_round_trip():
     color_pointer_attribute.xorMaskData = b"\x00\x00\x00\x00"
     color_pointer_attribute.andMaskData = b"\x00\x00"
 
-    pointer_cache = rdp_client.pointer_update.RdpPointerCache()
+    pointer_cache = rdp_pipe.pointer_update.RdpPointerCache()
     pointer_update = \
-        rdp_client.pointer_update.build_bitmap_pointer_update_from_color_attribute(
+        rdp_pipe.pointer_update.build_bitmap_pointer_update_from_color_attribute(
             color_pointer_attribute,
             24,
             pointer_cache)
 
-    assert pointer_update.kind == rdp_client.pointer_update.RdpPointerUpdateKind.BITMAP
+    assert pointer_update.kind == rdp_pipe.pointer_update.RdpPointerUpdateKind.BITMAP
     assert pointer_update.hotspot_x == 0
     assert pointer_update.hotspot_y == 0
     assert pointer_update.image.size == (1, 1)

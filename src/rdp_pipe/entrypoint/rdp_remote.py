@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 
-import rdp_client.command_socket
+import rdp_pipe.command_socket
 
 
 def build_subcommand_name(wire_command_name: str) -> str:
@@ -141,15 +141,15 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sock-filepath",
         dest="sock_filepath",
-        default=rdp_client.command_socket.DEFAULT_COMMAND_SOCKET_PATH,
+        default=rdp_pipe.command_socket.DEFAULT_COMMAND_SOCKET_PATH,
         help="Unix domain socket for JSON-line automation (default {0})".format(
-            rdp_client.command_socket.DEFAULT_COMMAND_SOCKET_PATH))
+            rdp_pipe.command_socket.DEFAULT_COMMAND_SOCKET_PATH))
 
     subparsers = parser.add_subparsers(
         dest="subcommand",
         required=True)
 
-    for wire_command_name in rdp_client.command_socket.SUPPORTED_COMMANDS:
+    for wire_command_name in rdp_pipe.command_socket.SUPPORTED_COMMANDS:
         register_subparser = SUBPARSER_REGISTRARS_BY_WIRE_COMMAND[wire_command_name]
         register_subparser(subparsers)
 
@@ -181,25 +181,25 @@ def build_request_body_for_arguments(arguments: argparse.Namespace) -> dict:
     wire_command_name = wire_command_name_from_subcommand(arguments.subcommand)
 
     if wire_command_name == "receive_geometry":
-        return rdp_client.command_socket.build_command_request_body("receive_geometry")
+        return rdp_pipe.command_socket.build_command_request_body("receive_geometry")
 
     if wire_command_name == "send_geometry":
         if arguments.width is None and arguments.height is None:
-            return rdp_client.command_socket.build_command_request_body("send_geometry")
+            return rdp_pipe.command_socket.build_command_request_body("send_geometry")
 
-        return rdp_client.command_socket.build_command_request_body(
+        return rdp_pipe.command_socket.build_command_request_body(
             "send_geometry",
             width=arguments.width,
             height=arguments.height)
 
     if wire_command_name == "receive_screenshot":
-        return rdp_client.command_socket.build_command_request_body(
+        return rdp_pipe.command_socket.build_command_request_body(
             "receive_screenshot",
             format=arguments.format,
             quality=arguments.quality)
 
     if wire_command_name == "send_click":
-        return rdp_client.command_socket.build_command_request_body(
+        return rdp_pipe.command_socket.build_command_request_body(
             "send_click",
             x=arguments.x,
             y=arguments.y,
@@ -207,11 +207,11 @@ def build_request_body_for_arguments(arguments: argparse.Namespace) -> dict:
 
     if wire_command_name == "send_key":
         if arguments.keys is not None:
-            return rdp_client.command_socket.build_command_request_body(
+            return rdp_pipe.command_socket.build_command_request_body(
                 "send_key",
                 keys=arguments.keys)
 
-        return rdp_client.command_socket.build_command_request_body(
+        return rdp_pipe.command_socket.build_command_request_body(
             "send_key",
             key=arguments.key)
 
@@ -230,11 +230,11 @@ def main(argv: list[str] | None = None) -> int:
     request_body = build_request_body_for_arguments(arguments)
 
     try:
-        response_body = rdp_client.command_socket.send_command_request(
+        response_body = rdp_pipe.command_socket.send_command_request(
             arguments.sock_filepath,
             request_body)
 
-    except rdp_client.command_socket.CommandSocketClientError as error:
+    except rdp_pipe.command_socket.CommandSocketClientError as error:
         sys.stderr.write(
             "error: {message}\n".format(message=str(error)))
 

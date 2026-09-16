@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rdp_client"
+name = "rdp_pipe"
 version = "0.0.1"
 description = "PyQt6 desktop RDP client with seamless resize (MS-RDPEDISP)"
 readme = "README.md"
@@ -21,8 +21,8 @@ dev = [
 ]
 
 [project.scripts]
-rdp = "rdp_client.entrypoint.rdp:main"
-rdp_remote = "rdp_client.entrypoint.rdp_remote:main"
+rdp = "rdp_pipe.entrypoint.rdp:main"
+rdp_remote = "rdp_pipe.entrypoint.rdp_remote:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -8,7 +8,7 @@ import PyQt6.QtWidgets
 import aardwolf.commons.queuedata.constants
 import pytest
 
-import rdp_client.qt_session_window
+import rdp_pipe.qt_session_window
 
 
 @pytest.fixture(scope="module")
@@ -34,7 +34,7 @@ def _drain_mouse_messages(input_queue: queue.Queue) -> list:
     return messages
 
 
-def _configure_canvas_for_mouse_tests(canvas: rdp_client.qt_session_window.RdpCanvas):
+def _configure_canvas_for_mouse_tests(canvas: rdp_pipe.qt_session_window.RdpCanvas):
     """Size the canvas so widget coordinates map 1:1 to the remote desktop."""
 
     canvas.resize(1280, 800)
@@ -65,7 +65,7 @@ def test_double_click_forwards_four_messages(qt_application):
     """Double-click forwards down, up, second down, and final up."""
 
     input_queue = queue.Queue()
-    canvas = rdp_client.qt_session_window.RdpCanvas()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
     canvas.set_input_queue(input_queue)
     _configure_canvas_for_mouse_tests(canvas)
 
@@ -114,7 +114,7 @@ def test_context_menu_event_forwards_right_press_release(qt_application):
     """A mouse context-menu event enqueues a full right click when no press is pending."""
 
     input_queue = queue.Queue()
-    canvas = rdp_client.qt_session_window.RdpCanvas()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
     canvas.set_input_queue(input_queue)
     _configure_canvas_for_mouse_tests(canvas)
 
@@ -138,7 +138,7 @@ def test_context_menu_after_right_press_forwards_release_only(qt_application):
     """Linux-style right press plus context menu completes with a single release."""
 
     input_queue = queue.Queue()
-    canvas = rdp_client.qt_session_window.RdpCanvas()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
     canvas.set_input_queue(input_queue)
     _configure_canvas_for_mouse_tests(canvas)
 
@@ -171,7 +171,7 @@ def test_unmapped_button_does_not_crash(qt_application):
     """Extra mouse buttons are ignored instead of raising KeyError."""
 
     input_queue = queue.Queue()
-    canvas = rdp_client.qt_session_window.RdpCanvas()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
     canvas.set_input_queue(input_queue)
     _configure_canvas_for_mouse_tests(canvas)
 
@@ -190,7 +190,7 @@ def test_leave_event_restores_arrow_cursor_after_blank_cursor(qt_application):
     """Leaving the canvas for the native title bar restores a visible system arrow."""
 
     session_window = PyQt6.QtWidgets.QMainWindow()
-    session_container = rdp_client.qt_session_window.RdpSessionContainer()
+    session_container = rdp_pipe.qt_session_window.RdpSessionContainer()
     session_window.setCentralWidget(session_container)
     canvas = session_container.canvas
     _configure_canvas_for_mouse_tests(canvas)
@@ -218,7 +218,7 @@ def test_mouse_debug_does_not_crash_on_press(qt_application, monkeypatch):
     monkeypatch.setenv("RDP_MOUSE_DEBUG", "1")
 
     input_queue = queue.Queue()
-    canvas = rdp_client.qt_session_window.RdpCanvas()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
     canvas.set_input_queue(input_queue)
     _configure_canvas_for_mouse_tests(canvas)
 

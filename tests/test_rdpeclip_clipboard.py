@@ -6,7 +6,7 @@ import aardwolf.extensions.RDPECLIP.protocol
 import aardwolf.extensions.RDPECLIP.protocol.formatdatarequest
 import aardwolf.extensions.RDPECLIP.protocol.formatlist
 
-import rdp_client.rdp_connection
+import rdp_pipe.rdp_connection
 
 
 async def _run_empty_clipboard_format_data_request():
@@ -22,7 +22,7 @@ async def _run_empty_clipboard_format_data_request():
     format_data_request.requestedFormatId = \
         aardwolf.extensions.RDPECLIP.protocol.formatlist.CLIPBRD_FORMAT.CF_UNICODETEXT
 
-    await rdp_client.rdp_connection._patched_rdpeclip_handle_format_data_request(
+    await rdp_pipe.rdp_connection._patched_rdpeclip_handle_format_data_request(
         channel,
         format_data_request)
 
@@ -63,11 +63,11 @@ async def _run_matching_clipboard_format_data_request():
     format_data_request.requestedFormatId = channel.clipboard.data.datatype
 
     with unittest.mock.patch.object(
-            rdp_client.rdp_connection,
+            rdp_pipe.rdp_connection,
             "_ORIGINAL_RDPECLIP_HANDLE_FORMAT_DATA_REQUEST",
             unittest.mock.AsyncMock()) as original_handler:
 
-        await rdp_client.rdp_connection._patched_rdpeclip_handle_format_data_request(
+        await rdp_pipe.rdp_connection._patched_rdpeclip_handle_format_data_request(
             channel,
             format_data_request)
 

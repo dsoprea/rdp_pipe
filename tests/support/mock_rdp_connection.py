@@ -7,18 +7,18 @@ import threading
 import aardwolf.commons.queuedata.constants
 import PIL.Image
 
-import rdp_client.connection_progress
-import rdp_client.display_control
-import rdp_client.rdp_connection
+import rdp_pipe.connection_progress
+import rdp_pipe.display_control
+import rdp_pipe.rdp_connection
 
 
-class MockDisplayControlChannel(rdp_client.display_control.DisplayControlChannel):
+class MockDisplayControlChannel(rdp_pipe.display_control.DisplayControlChannel):
     """Display control channel that skips DVC wire I/O in unit tests."""
 
     def __init__(self, resolution_request_callback=None):
         """Register optional resolution callback like the production channel."""
 
-        rdp_client.display_control.DisplayControlChannel.__init__(
+        rdp_pipe.display_control.DisplayControlChannel.__init__(
             self,
             resolution_request_callback=resolution_request_callback)
 
@@ -31,8 +31,8 @@ class MockDisplayControlChannel(rdp_client.display_control.DisplayControlChannel
 
             return False
 
-        even_width = rdp_client.display_control.clamp_even_display_width(width)
-        clamped_height = rdp_client.display_control.clamp_display_height(height)
+        even_width = rdp_pipe.display_control.clamp_even_display_width(width)
+        clamped_height = rdp_pipe.display_control.clamp_display_height(height)
 
         if self._resolution_request_callback is not None:
             self._resolution_request_callback(even_width, clamped_height)
@@ -45,7 +45,7 @@ def build_display_control_caps_pdu_bytes() -> bytes:
 
     caps_bytes = struct.pack(
         "<IIIII",
-        rdp_client.display_control.PDU_TYPE_CAPS,
+        rdp_pipe.display_control.PDU_TYPE_CAPS,
         20,
         16,
         8192,
@@ -81,14 +81,14 @@ class MockRdpConnection:
         self.clipboard_text_pushes = []
 
         iosettings, _display_control_channel = \
-            rdp_client.rdp_connection.build_iosettings_with_display_control(
+            rdp_pipe.rdp_connection.build_iosettings_with_display_control(
                 video_width,
                 video_height,
                 color_depth)
 
         display_control_channel = MockDisplayControlChannel()
         iosettings.vchannels[
-            rdp_client.display_control.DISPLAY_CONTROL_CHANNEL_NAME] = display_control_channel
+            rdp_pipe.display_control.DISPLAY_CONTROL_CHANNEL_NAME] = display_control_channel
 
         self.iosettings = iosettings
         self.display_control_channel = display_control_channel
@@ -107,7 +107,7 @@ class MockRdpConnection:
         copied_iosettings.vchannels = self.iosettings.vchannels
         self.iosettings = copied_iosettings
         self.display_control_channel = copied_iosettings.vchannels[
-            rdp_client.display_control.DISPLAY_CONTROL_CHANNEL_NAME]
+            rdp_pipe.display_control.DISPLAY_CONTROL_CHANNEL_NAME]
 
         return self
 
@@ -157,7 +157,7 @@ class MockRdpConnection:
 
         if self.progress_callback is not None:
             self.progress_callback(
-                rdp_client.connection_progress.CONNECTION_STEP_CONNECTING)
+                rdp_pipe.connection_progress.CONNECTION_STEP_CONNECTING)
 
         return True, None
 

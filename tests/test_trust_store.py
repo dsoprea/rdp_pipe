@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-import rdp_client.trust_store
+import rdp_pipe.trust_store
 
 
 def _generate_test_certificate_der() -> bytes:
@@ -68,17 +68,17 @@ def config_directory_path(tmp_path):
     """Isolate trust-store files under a temporary config directory."""
 
     config_root = os.path.join(str(tmp_path), "rdpipe")
-    rdp_client.trust_store.set_config_directory_path_for_tests(config_root)
+    rdp_pipe.trust_store.set_config_directory_path_for_tests(config_root)
 
     yield config_root
 
-    rdp_client.trust_store.set_config_directory_path_for_tests(None)
+    rdp_pipe.trust_store.set_config_directory_path_for_tests(None)
 
 
 def test_encode_ipv6_client_filename():
     """IPv6 addresses use underscores instead of colons in client filenames."""
 
-    encoded = rdp_client.trust_store.encode_ip_for_client_filename("2001:db8::1")
+    encoded = rdp_pipe.trust_store.encode_ip_for_client_filename("2001:db8::1")
 
     assert encoded == "2001_db8__1"
 
@@ -93,7 +93,7 @@ def test_first_connect_creates_client_and_certificate_files(config_directory_pat
         "first_seen": "2026-01-01T00:00:00+00:00",
     }
 
-    fingerprint = rdp_client.trust_store.verify_or_accept_server_certificate(
+    fingerprint = rdp_pipe.trust_store.verify_or_accept_server_certificate(
         remote_ip,
         der_bytes,
         metadata,
@@ -124,13 +124,13 @@ def test_repeat_connect_same_certificate_succeeds(config_directory_path):
     remote_ip = "10.0.0.6"
     metadata = {"first_seen": "2026-01-01T00:00:00+00:00"}
 
-    first_fingerprint = rdp_client.trust_store.verify_or_accept_server_certificate(
+    first_fingerprint = rdp_pipe.trust_store.verify_or_accept_server_certificate(
         remote_ip,
         der_bytes,
         metadata,
         config_directory_path)
 
-    second_fingerprint = rdp_client.trust_store.verify_or_accept_server_certificate(
+    second_fingerprint = rdp_pipe.trust_store.verify_or_accept_server_certificate(
         remote_ip,
         der_bytes,
         metadata,
@@ -147,18 +147,18 @@ def test_fingerprint_mismatch_raises_with_remediation_paths(config_directory_pat
     remote_ip = "10.0.0.7"
     metadata = {"first_seen": "2026-01-01T00:00:00+00:00"}
 
-    rdp_client.trust_store.verify_or_accept_server_certificate(
+    rdp_pipe.trust_store.verify_or_accept_server_certificate(
         remote_ip,
         first_der,
         metadata,
         config_directory_path)
 
-    stored_fingerprint = rdp_client.trust_store.load_client_fingerprint(
+    stored_fingerprint = rdp_pipe.trust_store.load_client_fingerprint(
         remote_ip,
         config_directory_path)
 
-    with pytest.raises(rdp_client.trust_store.CertificateTrustMismatchError) as error_info:
-        rdp_client.trust_store.verify_or_accept_server_certificate(
+    with pytest.raises(rdp_pipe.trust_store.CertificateTrustMismatchError) as error_info:
+        rdp_pipe.trust_store.verify_or_accept_server_certificate(
             remote_ip,
             second_der,
             metadata,
@@ -180,13 +180,13 @@ def test_same_certificate_new_ip_reuses_certificate_directory(config_directory_p
     second_ip = "10.0.0.9"
     metadata = {"first_seen": "2026-01-01T00:00:00+00:00"}
 
-    fingerprint = rdp_client.trust_store.verify_or_accept_server_certificate(
+    fingerprint = rdp_pipe.trust_store.verify_or_accept_server_certificate(
         first_ip,
         der_bytes,
         metadata,
         config_directory_path)
 
-    second_fingerprint = rdp_client.trust_store.verify_or_accept_server_certificate(
+    second_fingerprint = rdp_pipe.trust_store.verify_or_accept_server_certificate(
         second_ip,
         der_bytes,
         metadata,
@@ -212,19 +212,19 @@ def test_desktop_factory_from_url_returns_desktop_connection():
 
     import aardwolf.commons.iosettings
 
-    import rdp_client.rdp_connection
+    import rdp_pipe.rdp_connection
 
     iosettings = aardwolf.commons.iosettings.RDPIOSettings()
-    connection_factory =         rdp_client.rdp_connection.RdpDesktopConnectionFactory.from_url(
+    connection_factory =         rdp_pipe.rdp_connection.RdpDesktopConnectionFactory.from_url(
             "rdp+ntlm-password://user:pass@10.0.0.5",
             iosettings)
 
     assert isinstance(
         connection_factory,
-        rdp_client.rdp_connection.RdpDesktopConnectionFactory)
+        rdp_pipe.rdp_connection.RdpDesktopConnectionFactory)
 
     connection = connection_factory.get_connection(iosettings)
 
     assert isinstance(
         connection,
-        rdp_client.rdp_connection.RdpDesktopConnection)
+        rdp_pipe.rdp_connection.RdpDesktopConnection)

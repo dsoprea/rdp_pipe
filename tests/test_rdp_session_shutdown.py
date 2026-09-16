@@ -9,9 +9,9 @@ import unittest.mock
 import aardwolf.connection
 import pytest
 
-import rdp_client.qt_session_window
-import rdp_client.rdp_connection
-import rdp_client.rdp_session_thread
+import rdp_pipe.qt_session_window
+import rdp_pipe.rdp_connection
+import rdp_pipe.rdp_session_thread
 
 
 @pytest.fixture(scope="module")
@@ -31,7 +31,7 @@ def qt_application():
 def test_input_forwarder_does_not_forward_none_sentinel():
     """Shutdown sentinel stops the forwarder without enqueueing RDP input."""
 
-    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
     input_queue = queue.Queue()
     input_queue.put("mouse-event")
     input_queue.put(None)
@@ -64,7 +64,7 @@ def test_input_forwarder_does_not_forward_none_sentinel():
 def test_wait_for_shutdown_joins_async_thread():
     """wait_for_shutdown blocks until the asyncio worker thread exits."""
 
-    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
 
     def fake_async_thread_main():
         time.sleep(0.05)
@@ -86,9 +86,9 @@ def test_wait_for_shutdown_joins_async_thread():
 def test_shutdown_shows_shutting_down_overlay(qt_application):
     """Shutdown displays the shutting-down modal while tearing down resources."""
 
-    session_container = rdp_client.qt_session_window.RdpSessionContainer()
-    session_window = rdp_client.qt_session_window.RdpSessionWindow.__new__(
-        rdp_client.qt_session_window.RdpSessionWindow)
+    session_container = rdp_pipe.qt_session_window.RdpSessionContainer()
+    session_window = rdp_pipe.qt_session_window.RdpSessionWindow.__new__(
+        rdp_pipe.qt_session_window.RdpSessionWindow)
     session_window._shutdown_started = False
     session_window._command_server = None
     session_window._input_queue = queue.Queue()
@@ -110,8 +110,8 @@ def test_shutdown_shows_shutting_down_overlay(qt_application):
 def test_wait_for_shutdown_pumps_qt_events(qt_application):
     """Responsive shutdown wait processes Qt events while the worker thread lives."""
 
-    session_window = rdp_client.qt_session_window.RdpSessionWindow.__new__(
-        rdp_client.qt_session_window.RdpSessionWindow)
+    session_window = rdp_pipe.qt_session_window.RdpSessionWindow.__new__(
+        rdp_pipe.qt_session_window.RdpSessionWindow)
     session_window._worker = unittest.mock.Mock()
 
     alive_thread = unittest.mock.Mock()
@@ -123,7 +123,7 @@ def test_wait_for_shutdown_pumps_qt_events(qt_application):
     application.processEvents = unittest.mock.Mock()
 
     with unittest.mock.patch.object(
-            rdp_client.qt_session_window.PyQt6.QtWidgets.QApplication,
+            rdp_pipe.qt_session_window.PyQt6.QtWidgets.QApplication,
             "instance",
             unittest.mock.Mock(return_value=application)):
 
@@ -137,8 +137,8 @@ def test_wait_for_shutdown_pumps_qt_events(qt_application):
 def test_close_event_quits_application(qt_application):
     """Closing the window exits the Qt event loop after shutdown."""
 
-    session_window = rdp_client.qt_session_window.RdpSessionWindow.__new__(
-        rdp_client.qt_session_window.RdpSessionWindow)
+    session_window = rdp_pipe.qt_session_window.RdpSessionWindow.__new__(
+        rdp_pipe.qt_session_window.RdpSessionWindow)
     session_window._shutdown_started = False
     session_window._command_server = None
     session_window._input_queue = queue.Queue()
@@ -151,17 +151,17 @@ def test_close_event_quits_application(qt_application):
     application = unittest.mock.Mock()
 
     with unittest.mock.patch.object(
-            rdp_client.qt_session_window.RdpSessionWindow,
+            rdp_pipe.qt_session_window.RdpSessionWindow,
             "_wait_for_worker_shutdown_with_responsive_ui",
             unittest.mock.Mock(return_value=True)):
 
         with unittest.mock.patch.object(
-                rdp_client.qt_session_window.PyQt6.QtWidgets.QMainWindow,
+                rdp_pipe.qt_session_window.PyQt6.QtWidgets.QMainWindow,
                 "closeEvent",
                 unittest.mock.Mock()) as main_window_close_event:
 
             with unittest.mock.patch.object(
-                    rdp_client.qt_session_window.PyQt6.QtWidgets.QApplication,
+                    rdp_pipe.qt_session_window.PyQt6.QtWidgets.QApplication,
                     "instance",
                     unittest.mock.Mock(return_value=application)):
 
@@ -174,8 +174,8 @@ def test_close_event_quits_application(qt_application):
 def test_close_event_calls_wait_for_shutdown(qt_application):
     """Closing the window waits for the RDP session to disconnect."""
 
-    session_window = rdp_client.qt_session_window.RdpSessionWindow.__new__(
-        rdp_client.qt_session_window.RdpSessionWindow)
+    session_window = rdp_pipe.qt_session_window.RdpSessionWindow.__new__(
+        rdp_pipe.qt_session_window.RdpSessionWindow)
     session_window._shutdown_started = False
     session_window._command_server = None
     session_window._input_queue = queue.Queue()
@@ -187,12 +187,12 @@ def test_close_event_calls_wait_for_shutdown(qt_application):
     close_event = unittest.mock.Mock()
 
     with unittest.mock.patch.object(
-            rdp_client.qt_session_window.RdpSessionWindow,
+            rdp_pipe.qt_session_window.RdpSessionWindow,
             "_wait_for_worker_shutdown_with_responsive_ui",
             unittest.mock.Mock()) as wait_for_shutdown_with_ui:
 
         with unittest.mock.patch.object(
-                rdp_client.qt_session_window.PyQt6.QtWidgets.QMainWindow,
+                rdp_pipe.qt_session_window.PyQt6.QtWidgets.QMainWindow,
                 "closeEvent",
                 unittest.mock.Mock()) as main_window_close_event:
 
@@ -200,7 +200,7 @@ def test_close_event_calls_wait_for_shutdown(qt_application):
 
     session_window._worker.stop.assert_called_once()
     wait_for_shutdown_with_ui.assert_called_once_with(
-        rdp_client.qt_session_window.SESSION_SHUTDOWN_TIMEOUT_SECONDS)
+        rdp_pipe.qt_session_window.SESSION_SHUTDOWN_TIMEOUT_SECONDS)
     main_window_close_event.assert_called_once_with(close_event)
 
 
@@ -244,8 +244,8 @@ async def _run_terminate_with_pending_reader_tasks():
     # Build a connection shell with reader tasks that aardwolf would cancel
     # but not await.
 
-    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
-        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection = rdp_pipe.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_pipe.rdp_connection.RdpDesktopConnection)
     connection._share_channel_task = None
 
     x224_coroutine = _wait_forever_on_event()
@@ -273,7 +273,7 @@ def test_close_event_loop_after_cancelling_pending_tasks_finishes_queue_waiters(
     wait_on_queue_coroutine = _wait_on_queue(waiter_queue)
     waiter_task = event_loop.create_task(wait_on_queue_coroutine)
 
-    rdp_client.rdp_session_thread.close_event_loop_after_cancelling_pending_tasks(
+    rdp_pipe.rdp_session_thread.close_event_loop_after_cancelling_pending_tasks(
         event_loop)
 
     assert waiter_task.done() is True
@@ -287,7 +287,7 @@ def test_stop_schedules_session_stop_when_session_exists():
 
     _SCHEDULED_STOP_COROUTINES.clear()
 
-    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
     session = unittest.mock.Mock()
     session.stop = unittest.mock.Mock(return_value="session-stop")
 
@@ -316,7 +316,7 @@ def test_stop_schedules_session_stop_when_session_exists():
 def test_wait_for_shutdown_timeout_cancels_connection_task_on_event_loop():
     """A shutdown timeout must cancel the connection task and stop the asyncio loop."""
 
-    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
     worker._async_thread = unittest.mock.Mock()
     worker._async_thread.is_alive.side_effect = [True, False]
     worker._async_thread.join = unittest.mock.Mock()
@@ -340,7 +340,7 @@ def test_wait_for_shutdown_timeout_cancels_connection_task_on_event_loop():
 def test_force_async_thread_shutdown_stops_running_event_loop():
     """Forced shutdown must stop a running asyncio loop on the worker thread."""
 
-    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
     worker._async_thread = unittest.mock.Mock()
     worker._async_thread.is_alive.return_value = False
 
@@ -384,8 +384,8 @@ async def _simulate_x224_reader_finally_terminate(connection):
 async def _run_nested_terminate_from_x224_reader():
     """Exercise nested terminate while the x224 reader task is still current."""
 
-    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
-        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection = rdp_pipe.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_pipe.rdp_connection.RdpDesktopConnection)
     connection._share_channel_task = None
     connection._terminate_in_progress = False
 
@@ -408,7 +408,7 @@ def test_terminate_from_x224_reader_finally_does_not_await_current_task():
 def test_stop_cancels_connection_task_when_session_is_missing():
     """Cancel the connect task only when the session object does not exist yet."""
 
-    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
     worker._session = None
 
     event_loop = unittest.mock.Mock()
@@ -437,8 +437,8 @@ async def _run_terminate_with_hanging_parent():
     # Force the disconnect timeout so terminate() must close the transport
     # itself instead of waiting on MCS.out_queue.
 
-    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
-        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection = rdp_pipe.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_pipe.rdp_connection.RdpDesktopConnection)
     connection._share_channel_task = None
     connection._RDPConnection__x224_reader_task = None
     connection._RDPConnection__external_reader_task = None
@@ -447,7 +447,7 @@ async def _run_terminate_with_hanging_parent():
     connection._RDPConnection__connection = transport_connection
 
     with unittest.mock.patch.object(
-            rdp_client.rdp_connection,
+            rdp_pipe.rdp_connection,
             "TERMINATE_DISCONNECT_TIMEOUT_SECONDS",
             0.05):
 
@@ -473,8 +473,8 @@ def test_terminate_timeout_closes_aardwolf_transport():
 async def _run_terminate_signals_ext_out_queue_when_aardwolf_hangs():
     """Terminate must unblock run_until_stopped when aardwolf never enqueues None."""
 
-    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
-        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection = rdp_pipe.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_pipe.rdp_connection.RdpDesktopConnection)
     connection._share_channel_task = None
     connection._RDPConnection__x224_reader_task = None
     connection._RDPConnection__external_reader_task = None
@@ -486,7 +486,7 @@ async def _run_terminate_signals_ext_out_queue_when_aardwolf_hangs():
     connection._RDPConnection__connection = transport_connection
 
     with unittest.mock.patch.object(
-            rdp_client.rdp_connection,
+            rdp_pipe.rdp_connection,
             "TERMINATE_DISCONNECT_TIMEOUT_SECONDS",
             0.05):
 
@@ -515,32 +515,32 @@ def test_terminate_signals_ext_out_queue_when_aardwolf_terminate_hangs():
 def test_can_request_graceful_rdp_shutdown_requires_mcs_channel():
     """Graceful shutdown needs a joined MCS channel and server connect PDU."""
 
-    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
-        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection = rdp_pipe.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_pipe.rdp_connection.RdpDesktopConnection)
     connection._RDPConnection__joined_channels = {}
     connection._RDPConnection__server_connect_pdu = {"security": None}
     connection._RDPConnection__connection = unittest.mock.Mock()
 
-    assert rdp_client.rdp_connection._can_request_graceful_rdp_shutdown(connection) is False
+    assert rdp_pipe.rdp_connection._can_request_graceful_rdp_shutdown(connection) is False
 
 
 def test_can_request_graceful_rdp_shutdown_true_when_session_ready():
     """Graceful shutdown is allowed once MCS and server connect data exist."""
 
-    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
-        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection = rdp_pipe.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_pipe.rdp_connection.RdpDesktopConnection)
     connection._RDPConnection__joined_channels = {"MCS": unittest.mock.Mock()}
     connection._RDPConnection__server_connect_pdu = {"security": None}
     connection._RDPConnection__connection = unittest.mock.Mock()
 
-    assert rdp_client.rdp_connection._can_request_graceful_rdp_shutdown(connection) is True
+    assert rdp_pipe.rdp_connection._can_request_graceful_rdp_shutdown(connection) is True
 
 
 async def _run_terminate_without_mcs_skips_send_disconnect():
     """Terminate on a half-open connect must not call send_disconnect."""
 
-    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
-        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection = rdp_pipe.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_pipe.rdp_connection.RdpDesktopConnection)
     connection._RDPConnection__terminate_called = False
     connection._RDPConnection__joined_channels = {}
     connection._RDPConnection__server_connect_pdu = None
@@ -577,8 +577,8 @@ def test_terminate_without_mcs_skips_send_disconnect():
 async def _run_terminate_suppresses_warning_on_connection_reset():
     """Transport reset during shutdown is expected and must not warn."""
 
-    connection = rdp_client.rdp_connection.RdpDesktopConnection.__new__(
-        rdp_client.rdp_connection.RdpDesktopConnection)
+    connection = rdp_pipe.rdp_connection.RdpDesktopConnection.__new__(
+        rdp_pipe.rdp_connection.RdpDesktopConnection)
     connection._RDPConnection__terminate_called = False
     connection._RDPConnection__joined_channels = {"MCS": unittest.mock.Mock()}
     connection._RDPConnection__server_connect_pdu = {"security": None}
@@ -620,7 +620,7 @@ def test_close_event_loop_with_no_pending_tasks_closes_loop():
 
     event_loop = asyncio.new_event_loop()
 
-    rdp_client.rdp_session_thread.close_event_loop_after_cancelling_pending_tasks(
+    rdp_pipe.rdp_session_thread.close_event_loop_after_cancelling_pending_tasks(
         event_loop)
 
     assert event_loop.is_closed() is True
@@ -640,7 +640,7 @@ def test_close_event_loop_survives_external_stop_during_shutdown():
 
     event_loop.shutdown_default_executor = shutdown_default_executor_with_stop
 
-    rdp_client.rdp_session_thread.close_event_loop_after_cancelling_pending_tasks(
+    rdp_pipe.rdp_session_thread.close_event_loop_after_cancelling_pending_tasks(
         event_loop)
 
     assert event_loop.is_closed() is True
@@ -649,7 +649,7 @@ def test_close_event_loop_survives_external_stop_during_shutdown():
 async def _run_connect_aborts_when_gui_stops():
     """Exercise connect cancellation when the GUI requests shutdown."""
 
-    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
     connect_started = asyncio.Event()
     connect_cancelled = False
 
@@ -691,7 +691,7 @@ def test_connect_aborts_when_gui_stops_during_connect():
 async def _run_connect_failure_stderr_suppressed_on_shutdown():
     """Connection errors during shutdown must not print reconnect failure stderr."""
 
-    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
     worker._connection_url = "rdp://user@100.61.78.163:3389"
     worker._video_width = 800
     worker._video_height = 600
@@ -712,7 +712,7 @@ async def _run_connect_failure_stderr_suppressed_on_shutdown():
     session_stub.stop = unittest.mock.AsyncMock(return_value=None)
 
     with unittest.mock.patch(
-            "rdp_client.rdp_session_core.RdpAsyncSession",
+            "rdp_pipe.rdp_session_core.RdpAsyncSession",
             return_value=session_stub):
 
         with unittest.mock.patch.object(

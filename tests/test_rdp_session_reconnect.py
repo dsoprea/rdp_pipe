@@ -5,16 +5,16 @@ import unittest.mock
 
 import pytest
 
-import rdp_client.connection_error
-import rdp_client.connection_progress
-import rdp_client.rdp_session_thread
+import rdp_pipe.connection_error
+import rdp_pipe.connection_progress
+import rdp_pipe.rdp_session_thread
 
 
 @pytest.mark.asyncio
 async def test_run_connection_reconnects_after_disconnect(monkeypatch):
     """A dropped session tears down and schedules another connect attempt."""
 
-    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
     worker.set_session(
         "rdp+ntlm-password://user:secret@10.0.0.7",
         1280,
@@ -77,29 +77,29 @@ async def test_run_connection_reconnects_after_disconnect(monkeypatch):
             self._stop_event.set()
 
     monkeypatch.setattr(
-        rdp_client.rdp_session_core,
+        rdp_pipe.rdp_session_core,
         "RdpAsyncSession",
         FakeAsyncSession)
     monkeypatch.setattr(
-        rdp_client.rdp_session_thread,
+        rdp_pipe.rdp_session_thread,
         "SESSION_RECONNECT_DELAY_SECONDS",
         0.0)
     monkeypatch.setattr(
-        rdp_client.rdp_session_thread,
+        rdp_pipe.rdp_session_thread,
         "SESSION_RECONNECT_POLL_SECONDS",
         0.0)
 
     await worker._run_connection()
 
     assert connect_attempt_count == 2
-    assert rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING in progress_step_identifiers
+    assert rdp_pipe.connection_progress.CONNECTION_STEP_RECONNECTING in progress_step_identifiers
 
 
 @pytest.mark.asyncio
 async def test_wait_before_reconnect_honors_shutdown():
     """Reconnect delay exits early when the GUI requests shutdown."""
 
-    worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+    worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
     worker._gui_stopped_event.set()
 
     await worker._wait_before_reconnect()
@@ -109,7 +109,7 @@ def test_format_session_disconnected_reconnecting_stderr():
     """Clean disconnects print a reconnecting stderr line with host:port."""
 
     stderr_text = \
-        rdp_client.connection_error.format_session_disconnected_reconnecting_stderr(
+        rdp_pipe.connection_error.format_session_disconnected_reconnecting_stderr(
             "rdp+ntlm-password://user:secret@10.0.0.7:3390")
 
     assert stderr_text == \

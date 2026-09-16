@@ -11,15 +11,15 @@ import threading
 import PIL.Image
 import pytest
 
-import rdp_client.command_socket
-import rdp_client.rdp_input
-import rdp_client.rdp_session_core
+import rdp_pipe.command_socket
+import rdp_pipe.rdp_input
+import rdp_pipe.rdp_session_core
 
 
 def test_build_command_request_body():
     """Request bodies include command and optional fields."""
 
-    request_body = rdp_client.command_socket.build_command_request_body(
+    request_body = rdp_pipe.command_socket.build_command_request_body(
         "send_click",
         x=10,
         y=20,
@@ -55,7 +55,7 @@ def test_send_command_request_success():
 
         assert request_line == '{"command":"receive_geometry"}\n'
 
-        response_line = rdp_client.command_socket.build_success_response(
+        response_line = rdp_pipe.command_socket.build_success_response(
             {"width": 1280, "height": 800, "color_depth": 32})
 
         client_socket.sendall((response_line + "\n").encode("utf-8"))
@@ -66,7 +66,7 @@ def test_send_command_request_success():
     server_thread.start()
     ready_event.wait(timeout=2.0)
 
-    response_body = rdp_client.command_socket.send_command_request(
+    response_body = rdp_pipe.command_socket.send_command_request(
         socket_path,
         {"command": "receive_geometry"})
 
@@ -96,7 +96,7 @@ def test_send_command_request_error_raises():
         input_file.readline()
         input_file.close()
 
-        response_line = rdp_client.command_socket.build_error_response("bad command")
+        response_line = rdp_pipe.command_socket.build_error_response("bad command")
         client_socket.sendall((response_line + "\n").encode("utf-8"))
         client_socket.close()
         listen_socket.close()
@@ -105,8 +105,8 @@ def test_send_command_request_error_raises():
     server_thread.start()
     ready_event.wait(timeout=2.0)
 
-    with pytest.raises(rdp_client.command_socket.CommandSocketClientError) as error_info:
-        rdp_client.command_socket.send_command_request(
+    with pytest.raises(rdp_pipe.command_socket.CommandSocketClientError) as error_info:
+        rdp_pipe.command_socket.send_command_request(
             socket_path,
             {"command": "receive_geometry"})
 
@@ -118,7 +118,7 @@ def test_send_command_request_error_raises():
 def test_build_success_response():
     """Success responses include ok and result."""
 
-    response_line = rdp_client.command_socket.build_success_response(
+    response_line = rdp_pipe.command_socket.build_success_response(
         {"width": 1280, "height": 800})
 
     response_body = json.loads(response_line)
@@ -130,7 +130,7 @@ def test_build_success_response():
 def test_build_error_response():
     """Error responses include ok false and an error string."""
 
-    response_line = rdp_client.command_socket.build_error_response("bad command")
+    response_line = rdp_pipe.command_socket.build_error_response("bad command")
 
     response_body = json.loads(response_line)
 
@@ -142,14 +142,14 @@ def test_parse_command_request_requires_command_field():
     """Requests without command are rejected."""
 
     with pytest.raises(ValueError):
-        rdp_client.command_socket.parse_command_request("{}")
+        rdp_pipe.command_socket.parse_command_request("{}")
 
 
 def test_parse_command_request_invalid_json():
     """Invalid JSON is rejected by json.loads in dispatch."""
 
     with pytest.raises(json.JSONDecodeError):
-        rdp_client.command_socket.parse_command_request("{not-json")
+        rdp_pipe.command_socket.parse_command_request("{not-json")
 
 
 def test_encode_desktop_image_png_base64_round_trip():
@@ -157,7 +157,7 @@ def test_encode_desktop_image_png_base64_round_trip():
 
     desktop_image = PIL.Image.new("RGBA", (4, 4), color=(255, 0, 0, 255))
 
-    image_bytes = rdp_client.rdp_session_core.encode_desktop_image(
+    image_bytes = rdp_pipe.rdp_session_core.encode_desktop_image(
         desktop_image,
         "png",
         9)
@@ -170,14 +170,14 @@ def test_encode_desktop_image_png_base64_round_trip():
 def test_build_mouse_click_messages_invalid_button():
     """Unsupported mouse buttons raise RdpInputError."""
 
-    with pytest.raises(rdp_client.rdp_input.RdpInputError):
-        rdp_client.rdp_input.build_mouse_click_messages(10, 20, "side")
+    with pytest.raises(rdp_pipe.rdp_input.RdpInputError):
+        rdp_pipe.rdp_input.build_mouse_click_messages(10, 20, "side")
 
 
 def test_build_named_key_messages_return_and_escape():
     """Named keys map to press and release scancode messages."""
 
-    messages = rdp_client.rdp_input.build_named_key_messages("Return")
+    messages = rdp_pipe.rdp_input.build_named_key_messages("Return")
 
     assert len(messages) == 2
     assert messages[0].vk_code == "VK_RETURN"
@@ -188,7 +188,7 @@ def test_build_named_key_messages_return_and_escape():
 def test_build_text_key_messages_unicode_pairs():
     """Text keys emit press and release per character."""
 
-    messages = rdp_client.rdp_input.build_text_key_messages("ab")
+    messages = rdp_pipe.rdp_input.build_text_key_messages("ab")
 
     assert len(messages) == 4
     assert messages[0].char == "a"
@@ -200,7 +200,7 @@ def test_dispatch_request_from_background_thread_uses_stored_event_loop():
     """Command socket threads must not call asyncio.get_running_loop() on the session."""
 
     async def run_command_socket_dispatch_from_worker_thread():
-        session = rdp_client.rdp_session_core.RdpAsyncSession(
+        session = rdp_pipe.rdp_session_core.RdpAsyncSession(
             "rdp+ntlm-password://example.test",
             1280,
             800)
@@ -215,7 +215,7 @@ def test_dispatch_request_from_background_thread_uses_stored_event_loop():
 
         session.handle_receive_geometry = handle_receive_geometry
 
-        command_server = rdp_client.command_socket.CommandSocketServer(
+        command_server = rdp_pipe.command_socket.CommandSocketServer(
             "/tmp/test-rdp-command-socket.sock",
             session)
 

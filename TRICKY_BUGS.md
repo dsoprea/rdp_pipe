@@ -31,7 +31,7 @@ During clipboard channel init the client still sends `CB_FORMAT_LIST` for every 
 
 ### Fix
 
-Monkey-patch `RDPECLIPChannel._handle_format_data_request` in [`rdp_connection.py`](src/rdp_client/rdp_connection.py): when `clipboard.data is None`, send `CB_FORMAT_DATA_RESPONSE` with `CB_RESPONSE_FAIL` instead of touching `.datatype`. Delegate to the stock handler when local data exists.
+Monkey-patch `RDPECLIPChannel._handle_format_data_request` in [`rdp_connection.py`](src/rdp_pipe/rdp_connection.py): when `clipboard.data is None`, send `CB_FORMAT_DATA_RESPONSE` with `CB_RESPONSE_FAIL` instead of touching `.datatype`. Delegate to the stock handler when local data exists.
 
 ### Prevention
 
@@ -50,7 +50,7 @@ While the remote cursor overlay worked over the session framebuffer, moving the 
 
 ### Fix
 
-In [`RdpCanvas.leaveEvent`](src/rdp_client/qt_session_window.py), call **`_restore_visible_local_cursor_for_window_chrome()`**, which sets **`ArrowCursor`** on the canvas, `RdpSessionContainer`, and **`self.window()`**, and clear the remote overlay.
+In [`RdpCanvas.leaveEvent`](src/rdp_pipe/qt_session_window.py), call **`_restore_visible_local_cursor_for_window_chrome()`**, which sets **`ArrowCursor`** on the canvas, `RdpSessionContainer`, and **`self.window()`**, and clear the remote overlay.
 
 ### Prevention
 
@@ -65,7 +65,7 @@ Double-clicking in the remote desktop sometimes opened a Windows context menu in
 
 ### Root cause
 
-Several stacked input gaps in `RdpCanvas` ([`src/rdp_client/qt_session_window.py`](src/rdp_client/qt_session_window.py)):
+Several stacked input gaps in `RdpCanvas` ([`src/rdp_pipe/qt_session_window.py`](src/rdp_pipe/qt_session_window.py)):
 
 1. **No `mouseDoubleClickEvent`** — Qt replaces the second `MouseButtonPress` with `MouseButtonDblClick` on many platforms. We forwarded only press/release handlers, so the remote often saw `LEFT DOWN, LEFT UP, LEFT UP` (orphan release) instead of two full click pairs. RDP has no double-click flag; Windows synthesizes `WM_LBUTTONDBLCLK` only from two complete down/up sequences within the system interval.
 
@@ -94,7 +94,7 @@ Several stacked input gaps in `RdpCanvas` ([`src/rdp_client/qt_session_window.py
 | Linux right-click | `setContextMenuPolicy(NoContextMenu)`; `contextMenuEvent` completes the click — sends `BUTTON2 UP` when a right press was already forwarded, otherwise sends full press+release. |
 | Event propagation | Mouse/wheel handlers call `accept()` and no longer call `super()` so parent widgets do not reinterpret gestures. |
 | Unmapped buttons | `XButton1` / back / forward buttons are ignored with optional debug log instead of `KeyError`. |
-| Diagnostics | [`src/rdp_client/mouse_debug.py`](src/rdp_client/mouse_debug.py) — `RDP_MOUSE_DEBUG=1` logs Qt event type, button, buttons, source, remote coordinates, and RDP button state. |
+| Diagnostics | [`src/rdp_pipe/mouse_debug.py`](src/rdp_pipe/mouse_debug.py) — `RDP_MOUSE_DEBUG=1` logs Qt event type, button, buttons, source, remote coordinates, and RDP button state. |
 
 ### Prevention
 
@@ -171,8 +171,8 @@ aardwolf `send_disconnect()` can also block on `MCS.out_queue.get()` during an i
 
 - Python `asyncio.run()` shutdown: cancel leftover tasks, then close the loop.
 - aardwolf `RDPConnection.terminate` / `__x224_reader` / `__external_reader` in `aardwolf/connection.py`.
-- [`src/rdp_client/rdp_session_thread.py`](src/rdp_client/rdp_session_thread.py)
-- [`src/rdp_client/rdp_connection.py`](src/rdp_client/rdp_connection.py)
+- [`src/rdp_pipe/rdp_session_thread.py`](src/rdp_pipe/rdp_session_thread.py)
+- [`src/rdp_pipe/rdp_connection.py`](src/rdp_pipe/rdp_connection.py)
 
 ## Server drop wedges terminate before ext_out_queue None
 
@@ -195,7 +195,7 @@ aardwolf `handle_out_data` catches write failures, logs them, and calls `await s
 ### References
 
 - aardwolf `handle_out_data` / `send_disconnect` / `terminate` in `aardwolf/connection.py`
-- [`src/rdp_client/rdp_connection.py`](src/rdp_client/rdp_connection.py) `_signal_disconnect_to_session_loops()`
+- [`src/rdp_pipe/rdp_connection.py`](src/rdp_pipe/rdp_connection.py) `_signal_disconnect_to_session_loops()`
 
 ## Server drop triggers nested terminate and `await wasn't used with future`
 
@@ -225,7 +225,7 @@ aardwolf `handle_out_data` calls `await self.terminate()` on write failures. Our
 ### References
 
 - aardwolf `handle_out_data` except path and `__x224_reader` `finally` in `aardwolf/connection.py`
-- [`src/rdp_client/rdp_connection.py`](src/rdp_client/rdp_connection.py) `terminate()` / `_await_cancelled_aardwolf_reader_tasks()`
+- [`src/rdp_pipe/rdp_connection.py`](src/rdp_pipe/rdp_connection.py) `terminate()` / `_await_cancelled_aardwolf_reader_tasks()`
 
 ## Cursor invert pixels lost on some backgrounds (RDP Qt client)
 
@@ -393,7 +393,7 @@ Confirm Active also omitted `TS_BITMAP_CAPABILITYSET.desktopResizeFlag`, so the 
 
 - [MS-RDPBCGR deactivation-reactivation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/dfc234ce-481a-4306-9e45-0e9a5e4e6c82)
 - [MS-RDPEDISP monitor layout](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpedisp/22741217-12a0-4fb8-b5a0-df43905aaf06)
-- [`src/rdp_client/rdp_connection.py`](src/rdp_client/rdp_connection.py) — `_run_share_channel_loop`, `_complete_deactivation_reactivation`
+- [`src/rdp_pipe/rdp_connection.py`](src/rdp_pipe/rdp_connection.py) — `_run_share_channel_loop`, `_complete_deactivation_reactivation`
 
 ## Command pipe fails with “event loop is not running”
 
@@ -451,7 +451,7 @@ Seamless resize (MS-RDPEDISP) worked once after connect; dragging the client win
 
 ### References
 
-- [`src/rdp_client/qt_session_window.py`](src/rdp_client/qt_session_window.py) — `RdpCanvas`, `RdpSessionContainer`
-- [`src/rdp_client/qt_session_mapping.py`](src/rdp_client/qt_session_mapping.py) — shared coordinate mapping
-- [`src/rdp_client/display_control.py`](src/rdp_client/display_control.py) — last-sent layout dedup
+- [`src/rdp_pipe/qt_session_window.py`](src/rdp_pipe/qt_session_window.py) — `RdpCanvas`, `RdpSessionContainer`
+- [`src/rdp_pipe/qt_session_mapping.py`](src/rdp_pipe/qt_session_mapping.py) — shared coordinate mapping
+- [`src/rdp_pipe/display_control.py`](src/rdp_pipe/display_control.py) — last-sent layout dedup
 - Qt `QLabel::minimumSizeHint()` — returns pixmap size when a pixmap is set

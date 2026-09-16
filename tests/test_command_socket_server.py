@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-import rdp_client.command_socket
+import rdp_pipe.command_socket
 
 
 def _send_command(socket_path: str, request_body: dict) -> dict:
@@ -44,7 +44,7 @@ def command_socket_server(session_event_loop, tmp_path):
     session, event_loop = session_event_loop
     socket_path = os.path.join(str(tmp_path), "rdp-test.sock")
 
-    server = rdp_client.command_socket.CommandSocketServer(
+    server = rdp_pipe.command_socket.CommandSocketServer(
         socket_path,
         session)
 

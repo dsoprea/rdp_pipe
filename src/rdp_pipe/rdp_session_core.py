@@ -8,11 +8,11 @@ import aardwolf.commons.queuedata
 import aardwolf.commons.queuedata.constants
 import PIL.Image
 
-import rdp_client.activity_stamp
-import rdp_client.connection_progress
-import rdp_client.pointer_update
-import rdp_client.rdp_connection
-import rdp_client.rdp_input
+import rdp_pipe.activity_stamp
+import rdp_pipe.connection_progress
+import rdp_pipe.pointer_update
+import rdp_pipe.rdp_connection
+import rdp_pipe.rdp_input
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -144,10 +144,10 @@ class RdpAsyncSession:
         self._event_loop = asyncio.get_running_loop()
 
         self._report_connection_progress(
-            rdp_client.connection_progress.CONNECTION_STEP_PREPARING)
+            rdp_pipe.connection_progress.CONNECTION_STEP_PREPARING)
 
         iosettings, _display_control_channel = \
-            rdp_client.rdp_connection.build_iosettings_with_display_control(
+            rdp_pipe.rdp_connection.build_iosettings_with_display_control(
                 self._video_width,
                 self._video_height,
                 self._color_depth)
@@ -155,14 +155,14 @@ class RdpAsyncSession:
         self._iosettings = iosettings
 
         connection_factory = \
-            rdp_client.rdp_connection.RdpDesktopConnectionFactory.from_url(
+            rdp_pipe.rdp_connection.RdpDesktopConnectionFactory.from_url(
                 self._connection_url,
                 self._iosettings)
 
         self._connection = connection_factory.get_connection(self._iosettings)
         self._iosettings = self._connection.iosettings
         self._display_control_channel = self._connection.iosettings.vchannels[
-            rdp_client.display_control.DISPLAY_CONTROL_CHANNEL_NAME]
+            rdp_pipe.display_control.DISPLAY_CONTROL_CHANNEL_NAME]
         self._connection.display_control_channel = self._display_control_channel
         self._connection.progress_callback = self._report_connection_progress
 
@@ -179,7 +179,7 @@ class RdpAsyncSession:
             raise RdpSessionError("RDP connection failed without an error detail")
 
         self._report_connection_progress(
-            rdp_client.connection_progress.CONNECTION_STEP_CONFIGURING_DISPLAY)
+            rdp_pipe.connection_progress.CONNECTION_STEP_CONFIGURING_DISPLAY)
 
         await self._connection.open_display_control_channel()
 
@@ -192,7 +192,7 @@ class RdpAsyncSession:
                 "RDPDISP caps not received; seamless resize disabled for this server")
 
         self._report_connection_progress(
-            rdp_client.connection_progress.CONNECTION_STEP_READY)
+            rdp_pipe.connection_progress.CONNECTION_STEP_READY)
 
         self._connected_event.set()
 
@@ -210,7 +210,7 @@ class RdpAsyncSession:
         for callback in self._resolution_changed_callbacks:
             callback(width, height)
 
-    def _dispatch_pointer_update(self, pointer_update: rdp_client.pointer_update.RdpPointerUpdate):
+    def _dispatch_pointer_update(self, pointer_update: rdp_pipe.pointer_update.RdpPointerUpdate):
         """Deliver pointer updates without waiting behind video queue items."""
 
         for callback in self._pointer_update_callbacks:
@@ -234,7 +234,7 @@ class RdpAsyncSession:
             except asyncio.QueueEmpty:
                 break
 
-            if isinstance(output_item, rdp_client.pointer_update.RdpPointerUpdate):
+            if isinstance(output_item, rdp_pipe.pointer_update.RdpPointerUpdate):
                 self._dispatch_pointer_update(output_item)
 
             else:
@@ -271,12 +271,12 @@ class RdpAsyncSession:
             if output_item is None:
                 return
 
-            if isinstance(output_item, rdp_client.pointer_update.RdpPointerUpdate):
+            if isinstance(output_item, rdp_pipe.pointer_update.RdpPointerUpdate):
                 self._dispatch_pointer_update(output_item)
 
             elif output_item.type == aardwolf.commons.queuedata.RDPDATATYPE.VIDEO:
                 if self._activity_stamp_filepath is not None:
-                    rdp_client.activity_stamp.touch_activity_stamp_file(
+                    rdp_pipe.activity_stamp.touch_activity_stamp_file(
                         self._activity_stamp_filepath)
 
                 video_frame = RdpVideoFrame(
@@ -355,8 +355,8 @@ class RdpAsyncSession:
             raise RdpSessionError(
                 "RDPDISP display control is not available; cannot change remote resolution")
 
-        applied_width = rdp_client.display_control.clamp_even_display_width(target_width)
-        applied_height = rdp_client.display_control.clamp_display_height(target_height)
+        applied_width = rdp_pipe.display_control.clamp_even_display_width(target_width)
+        applied_height = rdp_pipe.display_control.clamp_display_height(target_height)
 
         return {
             "width": applied_width,
@@ -397,7 +397,7 @@ class RdpAsyncSession:
     async def handle_send_click(self, x_position: int, y_position: int, button: str) -> dict:
         """Send a mouse click at remote coordinates."""
 
-        click_messages = rdp_client.rdp_input.build_mouse_click_messages(
+        click_messages = rdp_pipe.rdp_input.build_mouse_click_messages(
             x_position,
             y_position,
             button)
@@ -410,15 +410,15 @@ class RdpAsyncSession:
         """Send keyboard input as text or a named key."""
 
         if keys is not None and key is not None:
-            raise rdp_client.rdp_input.RdpInputError("send_key accepts keys or key, not both")
+            raise rdp_pipe.rdp_input.RdpInputError("send_key accepts keys or key, not both")
 
         if keys is None and key is None:
-            raise rdp_client.rdp_input.RdpInputError("send_key requires keys or key")
+            raise rdp_pipe.rdp_input.RdpInputError("send_key requires keys or key")
 
         if keys is not None:
-            key_messages = rdp_client.rdp_input.build_text_key_messages(keys)
+            key_messages = rdp_pipe.rdp_input.build_text_key_messages(keys)
         else:
-            key_messages = rdp_client.rdp_input.build_named_key_messages(key)
+            key_messages = rdp_pipe.rdp_input.build_named_key_messages(key)
 
         await self.enqueue_input_messages(key_messages)
 

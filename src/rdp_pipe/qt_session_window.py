@@ -14,15 +14,15 @@ import PyQt6.QtCore
 import PyQt6.QtGui
 import PyQt6.QtWidgets
 
-import rdp_client.command_socket
-import rdp_client.connection_progress
-import rdp_client.connection_url
-import rdp_client.display_control
-import rdp_client.mouse_debug
-import rdp_client.pointer_debug
-import rdp_client.qt_session_mapping
-import rdp_client.pointer_update
-import rdp_client.rdp_session_thread
+import rdp_pipe.command_socket
+import rdp_pipe.connection_progress
+import rdp_pipe.connection_url
+import rdp_pipe.display_control
+import rdp_pipe.mouse_debug
+import rdp_pipe.pointer_debug
+import rdp_pipe.qt_session_mapping
+import rdp_pipe.pointer_update
+import rdp_pipe.rdp_session_thread
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -126,14 +126,14 @@ class RdpConnectingOverlay(PyQt6.QtWidgets.QWidget):
         steps_layout.setContentsMargins(0, 0, 0, 0)
         steps_layout.setSpacing(8)
 
-        for step_identifier in rdp_client.connection_progress.ORDERED_CONNECTION_STEPS:
-            if step_identifier == rdp_client.connection_progress.CONNECTION_STEP_READY:
+        for step_identifier in rdp_pipe.connection_progress.ORDERED_CONNECTION_STEPS:
+            if step_identifier == rdp_pipe.connection_progress.CONNECTION_STEP_READY:
                 continue
 
-            if step_identifier == rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING:
+            if step_identifier == rdp_pipe.connection_progress.CONNECTION_STEP_RECONNECTING:
                 continue
 
-            step_label = rdp_client.connection_progress.get_connection_step_label(
+            step_label = rdp_pipe.connection_progress.get_connection_step_label(
                 step_identifier)
 
             step_row = RdpConnectingStepRow(step_label, self._panel)
@@ -168,32 +168,32 @@ class RdpConnectingOverlay(PyQt6.QtWidgets.QWidget):
 
         self._current_step_identifier = None
         self.set_progress_step(
-            rdp_client.connection_progress.CONNECTION_STEP_PREPARING)
+            rdp_pipe.connection_progress.CONNECTION_STEP_PREPARING)
 
     def set_progress_step(self, step_identifier: str):
         """Advance the modal to the given connection step."""
 
-        if step_identifier == rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING:
+        if step_identifier == rdp_pipe.connection_progress.CONNECTION_STEP_RECONNECTING:
             self._title_label.setText("Reconnecting")
             self.show()
             return
 
         self._title_label.setText("Connecting")
 
-        if step_identifier == rdp_client.connection_progress.CONNECTION_STEP_READY:
+        if step_identifier == rdp_pipe.connection_progress.CONNECTION_STEP_READY:
             self.hide()
             return
 
-        step_index = rdp_client.connection_progress.get_connection_step_index(
+        step_index = rdp_pipe.connection_progress.get_connection_step_index(
             step_identifier)
 
         for listed_index, listed_step_identifier in enumerate(
-                rdp_client.connection_progress.ORDERED_CONNECTION_STEPS):
+                rdp_pipe.connection_progress.ORDERED_CONNECTION_STEPS):
 
-            if listed_step_identifier == rdp_client.connection_progress.CONNECTION_STEP_READY:
+            if listed_step_identifier == rdp_pipe.connection_progress.CONNECTION_STEP_READY:
                 continue
 
-            if listed_step_identifier == rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING:
+            if listed_step_identifier == rdp_pipe.connection_progress.CONNECTION_STEP_RECONNECTING:
                 continue
 
             step_row = self._step_rows_by_identifier[listed_step_identifier]
@@ -403,7 +403,7 @@ class RdpRemoteCursorOverlay(PyQt6.QtWidgets.QWidget):
             return self._sample_framebuffer_red_green_blue(canvas, widget_x, widget_y)
 
         composited_rgba_image = \
-            rdp_client.pointer_update.build_composited_pointer_rgba_image(
+            rdp_pipe.pointer_update.build_composited_pointer_rgba_image(
                 self._cursor_rgba_image,
                 self._invert_mask_image,
                 cursor_x,
@@ -493,7 +493,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         self._remote_width = DEFAULT_WINDOW_WIDTH
         self._remote_height = DEFAULT_WINDOW_HEIGHT
         self._pointer_inside_canvas = False
-        self._bitmap_pointer_update: rdp_client.pointer_update.RdpPointerUpdate | None = None
+        self._bitmap_pointer_update: rdp_pipe.pointer_update.RdpPointerUpdate | None = None
         self._last_pointer_widget_position: PyQt6.QtCore.QPoint | None = None
         self._suppress_default_pointer_until: float = 0.0
         self._last_mouse_pointer_debug_at: float = 0.0
@@ -595,7 +595,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
         self._enqueue_hover_at_widget_position(widget_position)
 
-        if rdp_client.pointer_debug.is_pointer_debug_enabled():
+        if rdp_pipe.pointer_debug.is_pointer_debug_enabled():
             remote_position = self._map_widget_position_to_remote(widget_position)
             remote_detail = "none"
 
@@ -604,7 +604,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
                     remote_x=remote_position.x(),
                     remote_y=remote_position.y())
 
-            rdp_client.pointer_debug.write_pointer_debug(
+            rdp_pipe.pointer_debug.write_pointer_debug(
                 "pointer display: session-ready hover widget=({widget_x}, {widget_y}) remote={remote_detail}".format(
                     widget_x=widget_position.x(),
                     widget_y=widget_position.y(),
@@ -651,7 +651,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
             widget_position: PyQt6.QtCore.QPoint) -> PyQt6.QtCore.QPoint | None:
         """Map widget coordinates to remote desktop coordinates."""
 
-        mapped_position = rdp_client.qt_session_mapping.map_widget_position_to_remote(
+        mapped_position = rdp_pipe.qt_session_mapping.map_widget_position_to_remote(
             self.width(),
             self.height(),
             self._remote_width,
@@ -672,8 +672,8 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         try:
             return self._mouse_button_map[qt_mouse_button]
         except KeyError:
-            if rdp_client.mouse_debug.is_mouse_debug_enabled():
-                rdp_client.mouse_debug.write_mouse_debug(
+            if rdp_pipe.mouse_debug.is_mouse_debug_enabled():
+                rdp_pipe.mouse_debug.write_mouse_debug(
                     "mouse unmapped qt_button={qt_mouse_button}".format(
                         qt_mouse_button=qt_mouse_button))
 
@@ -688,7 +688,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
             is_pressed: bool):
         """Log one forwarded mouse message when RDP_MOUSE_DEBUG is enabled."""
 
-        if not rdp_client.mouse_debug.is_mouse_debug_enabled():
+        if not rdp_pipe.mouse_debug.is_mouse_debug_enabled():
             return
 
         qt_button_name = "n/a"
@@ -705,7 +705,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
                     device_name=pointing_device.name(),
                     device_type=pointing_device.type())
 
-        rdp_client.mouse_debug.write_mouse_debug(
+        rdp_pipe.mouse_debug.write_mouse_debug(
             "mouse {event_type_name} t={timestamp} qt_button={qt_button_name} "
             "qt_buttons={qt_buttons_name} qt_source={qt_source_name} "
             "remote=({remote_x}, {remote_y}) rdp_button={rdp_button_name} "
@@ -816,7 +816,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
                 button,
                 mouse_message.is_pressed)
 
-        if is_hover and rdp_client.pointer_debug.is_pointer_debug_enabled():
+        if is_hover and rdp_pipe.pointer_debug.is_pointer_debug_enabled():
             debug_now = time.monotonic()
             if debug_now - self._last_mouse_pointer_debug_at >= MOUSE_POINTER_DEBUG_INTERVAL_SECONDS:
                 self._last_mouse_pointer_debug_at = debug_now
@@ -824,7 +824,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
                 framebuffer_height = self._remote_height
                 origin = self._letterbox_origin()
 
-                rdp_client.pointer_debug.write_pointer_debug(
+                rdp_pipe.pointer_debug.write_pointer_debug(
                     "mouse hover forwarded remote=({remote_x}, {remote_y}) widget=({widget_width}, {widget_height}) "
                     "framebuffer=({framebuffer_width}, {framebuffer_height}) origin=({origin_x}, {origin_y}) "
                     "canvas_dpr={canvas_device_pixel_ratio}".format(
@@ -914,10 +914,10 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         self._cursor_overlay.clear_cursor()
         super().leaveEvent(leave_event)
 
-    def apply_pointer_update(self, pointer_update: rdp_client.pointer_update.RdpPointerUpdate):
+    def apply_pointer_update(self, pointer_update: rdp_pipe.pointer_update.RdpPointerUpdate):
         """Apply a server pointer update to the canvas cursor overlay."""
 
-        if pointer_update.kind == rdp_client.pointer_update.RdpPointerUpdateKind.BITMAP:
+        if pointer_update.kind == rdp_pipe.pointer_update.RdpPointerUpdateKind.BITMAP:
             if pointer_update.image is None:
                 return
 
@@ -937,22 +937,22 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
             return
 
         if self._pointer_inside_canvas is False:
-            if rdp_client.pointer_debug.is_pointer_debug_enabled():
-                rdp_client.pointer_debug.write_pointer_debug(
+            if rdp_pipe.pointer_debug.is_pointer_debug_enabled():
+                rdp_pipe.pointer_debug.write_pointer_debug(
                     "pointer apply: {kind} ignored pointer outside canvas".format(
                         kind=pointer_update.kind.value))
 
             return
 
-        if pointer_update.kind == rdp_client.pointer_update.RdpPointerUpdateKind.DEFAULT:
+        if pointer_update.kind == rdp_pipe.pointer_update.RdpPointerUpdateKind.DEFAULT:
             if time.monotonic() < self._suppress_default_pointer_until:
-                rdp_client.pointer_debug.write_pointer_debug(
+                rdp_pipe.pointer_debug.write_pointer_debug(
                     "pointer apply: default suppressed (paired with prior bitmap)")
 
                 return
 
             if self._bitmap_pointer_update is None:
-                rdp_client.pointer_debug.write_pointer_debug(
+                rdp_pipe.pointer_debug.write_pointer_debug(
                     "pointer apply: default ignored (no bitmap pointer yet)")
 
                 return
@@ -963,7 +963,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
             return
 
-        if pointer_update.kind == rdp_client.pointer_update.RdpPointerUpdateKind.HIDDEN:
+        if pointer_update.kind == rdp_pipe.pointer_update.RdpPointerUpdateKind.HIDDEN:
             self._suppress_default_pointer_until = 0.0
             self._bitmap_pointer_update = None
             self._cursor_overlay.clear_cursor()
@@ -973,23 +973,23 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
     def _write_pointer_apply_debug(
             self,
-            pointer_update: rdp_client.pointer_update.RdpPointerUpdate,
+            pointer_update: rdp_pipe.pointer_update.RdpPointerUpdate,
             applied: bool):
 
-        if not rdp_client.pointer_debug.is_pointer_debug_enabled():
+        if not rdp_pipe.pointer_debug.is_pointer_debug_enabled():
             return
 
-        if pointer_update.kind == rdp_client.pointer_update.RdpPointerUpdateKind.BITMAP:
+        if pointer_update.kind == rdp_pipe.pointer_update.RdpPointerUpdateKind.BITMAP:
             image = pointer_update.image
             visible_pixel_count = 0
 
             if image is not None:
                 visible_pixel_count = \
-                    rdp_client.pointer_update.count_pointer_image_visible_pixels(
+                    rdp_pipe.pointer_update.count_pointer_image_visible_pixels(
                         image,
                         pointer_update.invert_mask_image)
 
-            rdp_client.pointer_debug.write_pointer_debug(
+            rdp_pipe.pointer_debug.write_pointer_debug(
                 "pointer apply: bitmap {width}x{height} xor_bpp={xor_bpp} cache_index={cache_index} hotspot=({hotspot_x}, {hotspot_y}) visible_pixels={visible_pixel_count} applied={applied} inside={inside}".format(
                     width=image.width if image is not None else 0,
                     height=image.height if image is not None else 0,
@@ -1003,7 +1003,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
             return
 
-        rdp_client.pointer_debug.write_pointer_debug(
+        rdp_pipe.pointer_debug.write_pointer_debug(
             "pointer apply: {kind} applied={applied} inside={inside}".format(
                 kind=pointer_update.kind.value,
                 applied=applied,
@@ -1028,12 +1028,12 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
             return
 
-        if not rdp_client.pointer_update.pointer_image_has_visible_pixels(
+        if not rdp_pipe.pointer_update.pointer_image_has_visible_pixels(
                 pointer_update.image,
                 pointer_update.invert_mask_image):
             self.setCursor(PyQt6.QtCore.Qt.CursorShape.BlankCursor)
             self._cursor_overlay.clear_cursor()
-            rdp_client.pointer_debug.write_pointer_debug(
+            rdp_pipe.pointer_debug.write_pointer_debug(
                 "pointer sync: bitmap has no visible pixels; keeping blank local cursor")
 
             return
@@ -1082,8 +1082,8 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
     def contextMenuEvent(self, context_menu_event: PyQt6.QtGui.QContextMenuEvent):
         """Complete right-click forwarding when Linux omits the release event."""
 
-        if rdp_client.mouse_debug.is_mouse_debug_enabled():
-            rdp_client.mouse_debug.write_mouse_debug(
+        if rdp_pipe.mouse_debug.is_mouse_debug_enabled():
+            rdp_pipe.mouse_debug.write_mouse_debug(
                 "mouse ContextMenuEvent t={timestamp} reason={reason} pos=({pos_x}, {pos_y}) "
                 "right_press_pending={right_press_pending}".format(
                     timestamp=time.monotonic(),
@@ -1234,7 +1234,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             PyQt6.QtGui.QImage.Format.Format_RGB32)
 
         self.setWindowTitle(
-            rdp_client.connection_url.build_session_window_title(connection_url))
+            rdp_pipe.connection_url.build_session_window_title(connection_url))
         self.setMinimumSize(0, 0)
         self.resize(video_width, video_height)
 
@@ -1249,7 +1249,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
         self.setCentralWidget(self._session_container)
 
-        self._worker = rdp_client.rdp_session_thread.RdpSessionWorker()
+        self._worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
         self._worker.set_session(
             connection_url,
             video_width,
@@ -1281,7 +1281,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
     def _handle_connection_progress(self, step_identifier: str):
         """Update the connecting overlay as the background session advances."""
 
-        if step_identifier == rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING:
+        if step_identifier == rdp_pipe.connection_progress.CONNECTION_STEP_RECONNECTING:
             self._session_rdp_ready = False
 
         self._connecting_overlay.set_progress_step(step_identifier)
@@ -1290,10 +1290,10 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         """Start the optional command socket after RDP connect succeeds."""
 
         self._connecting_overlay.set_progress_step(
-            rdp_client.connection_progress.CONNECTION_STEP_READY)
+            rdp_pipe.connection_progress.CONNECTION_STEP_READY)
 
         if session.connection is not None:
-            rdp_client.pointer_debug.write_pointer_session_summary(
+            rdp_pipe.pointer_debug.write_pointer_session_summary(
                 session.connection._pointer_cache,
                 session.connection._pointer_pdu_count_by_update_code)
 
@@ -1316,7 +1316,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             return
 
         if self._command_server is None:
-            self._command_server = rdp_client.command_socket.CommandSocketServer(
+            self._command_server = rdp_pipe.command_socket.CommandSocketServer(
                 self._command_socket_path,
                 session)
 
@@ -1325,7 +1325,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         else:
             self._command_server.set_session(session)
 
-    def _handle_pointer_update(self, pointer_update: rdp_client.pointer_update.RdpPointerUpdate):
+    def _handle_pointer_update(self, pointer_update: rdp_pipe.pointer_update.RdpPointerUpdate):
         """Apply a server pointer update to the session canvas."""
 
         self._canvas.apply_pointer_update(pointer_update)
@@ -1365,7 +1365,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         finally:
             self._clipboard_sync_from_remote = False
 
-    def _handle_video_frame(self, video_frame: rdp_client.rdp_session_thread.RdpVideoFrame):
+    def _handle_video_frame(self, video_frame: rdp_pipe.rdp_session_thread.RdpVideoFrame):
         """Blit a partial rectangle into the local QImage buffer."""
 
         session = self._worker.get_session()
@@ -1440,8 +1440,8 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         if session.display_caps_unavailable:
             return
 
-        even_width = rdp_client.display_control.clamp_even_display_width(width)
-        clamped_height = rdp_client.display_control.clamp_display_height(height)
+        even_width = rdp_pipe.display_control.clamp_even_display_width(width)
+        clamped_height = rdp_pipe.display_control.clamp_display_height(height)
 
         self._worker.request_remote_resolution(even_width, clamped_height)
 
@@ -1475,7 +1475,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
             if remaining_seconds <= 0:
                 return self._worker.wait_for_shutdown(
-                    rdp_client.rdp_session_thread.ASYNC_THREAD_FORCE_SHUTDOWN_JOIN_SECONDS)
+                    rdp_pipe.rdp_session_thread.ASYNC_THREAD_FORCE_SHUTDOWN_JOIN_SECONDS)
 
             application.processEvents(
                 PyQt6.QtCore.QEventLoop.ProcessEventsFlag.AllEvents,

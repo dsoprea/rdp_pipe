@@ -5,8 +5,8 @@ import errno
 import ssl
 import urllib.parse
 
-import rdp_client.rdp_session_core
-import rdp_client.trust_store
+import rdp_pipe.rdp_session_core
+import rdp_pipe.trust_store
 
 DEFAULT_RDP_PORT = 3389
 _SERVER_ERROR_PREFIX = "Server replied with error"
@@ -29,7 +29,7 @@ def parse_connection_endpoint(connection_url: str) -> str:
 def describe_connection_failure(error: BaseException) -> str:
     """Map a connect exception to a short English reason without a traceback."""
 
-    if isinstance(error, rdp_client.trust_store.CertificateTrustMismatchError):
+    if isinstance(error, rdp_pipe.trust_store.CertificateTrustMismatchError):
         return str(error)
 
     if isinstance(error, asyncio.TimeoutError):
@@ -67,7 +67,7 @@ def describe_connection_failure(error: BaseException) -> str:
 
         return "TLS handshake failed"
 
-    if isinstance(error, rdp_client.rdp_session_core.RdpSessionError):
+    if isinstance(error, rdp_pipe.rdp_session_core.RdpSessionError):
         return str(error)
 
     error_message = str(error)
@@ -83,8 +83,8 @@ def format_connection_failure_stderr(
         error: BaseException) -> str:
     """Return a managed stderr block for a failed connect attempt."""
 
-    if isinstance(error, rdp_client.trust_store.CertificateTrustMismatchError):
-        return rdp_client.trust_store.format_certificate_trust_mismatch_stderr(error)
+    if isinstance(error, rdp_pipe.trust_store.CertificateTrustMismatchError):
+        return rdp_pipe.trust_store.format_certificate_trust_mismatch_stderr(error)
 
     endpoint = parse_connection_endpoint(connection_url)
     failure_reason = describe_connection_failure(error)

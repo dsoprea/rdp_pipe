@@ -5,14 +5,14 @@ import unittest.mock
 
 import pytest
 
-import rdp_client.command_socket
-import rdp_client.rdp_session_core
+import rdp_pipe.command_socket
+import rdp_pipe.rdp_session_core
 
 
 def test_handle_send_geometry_resets_native_resolution():
     """Omitted dimensions request the initial connect resolution."""
 
-    session = rdp_client.rdp_session_core.RdpAsyncSession(
+    session = rdp_pipe.rdp_session_core.RdpAsyncSession(
         "rdp+ntlm-password://user@10.0.0.1",
         1280,
         800)
@@ -30,7 +30,7 @@ def test_handle_send_geometry_resets_native_resolution():
 def test_handle_send_geometry_requests_explicit_dimensions():
     """Width and height are forwarded to RDPDISP after clamping."""
 
-    session = rdp_client.rdp_session_core.RdpAsyncSession(
+    session = rdp_pipe.rdp_session_core.RdpAsyncSession(
         "rdp+ntlm-password://user@10.0.0.1",
         1280,
         800)
@@ -48,7 +48,7 @@ def test_handle_send_geometry_requests_explicit_dimensions():
 def test_handle_send_geometry_rejects_partial_dimensions():
     """Only one of width or height is invalid."""
 
-    session = rdp_client.rdp_session_core.RdpAsyncSession(
+    session = rdp_pipe.rdp_session_core.RdpAsyncSession(
         "rdp+ntlm-password://user@10.0.0.1",
         1280,
         800)
@@ -62,7 +62,7 @@ def test_handle_send_geometry_rejects_partial_dimensions():
 def test_handle_send_geometry_fails_without_rdpsisp_caps():
     """Unavailable RDPDISP caps surface as RdpSessionError."""
 
-    session = rdp_client.rdp_session_core.RdpAsyncSession(
+    session = rdp_pipe.rdp_session_core.RdpAsyncSession(
         "rdp+ntlm-password://user@10.0.0.1",
         1280,
         800)
@@ -71,7 +71,7 @@ def test_handle_send_geometry_fails_without_rdpsisp_caps():
     display_control_channel.request_resolution = unittest.mock.AsyncMock(return_value=False)
     session._display_control_channel = display_control_channel
 
-    with pytest.raises(rdp_client.rdp_session_core.RdpSessionError):
+    with pytest.raises(rdp_pipe.rdp_session_core.RdpSessionError):
         asyncio.run(session.handle_send_geometry(1600, 900))
 
 
@@ -82,7 +82,7 @@ def test_command_socket_handle_send_geometry():
     session.handle_send_geometry = unittest.mock.AsyncMock(
         return_value={"width": 1280, "height": 800})
 
-    command_server = rdp_client.command_socket.CommandSocketServer(
+    command_server = rdp_pipe.command_socket.CommandSocketServer(
         "/tmp/test-rdp.sock",
         session)
 
@@ -100,7 +100,7 @@ def test_command_socket_handle_send_geometry_native_reset():
     session.handle_send_geometry = unittest.mock.AsyncMock(
         return_value={"width": 1280, "height": 800})
 
-    command_server = rdp_client.command_socket.CommandSocketServer(
+    command_server = rdp_pipe.command_socket.CommandSocketServer(
         "/tmp/test-rdp.sock",
         session)
 

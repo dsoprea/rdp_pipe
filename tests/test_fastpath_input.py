@@ -2,7 +2,7 @@
 
 import aardwolf.commons.queuedata.constants
 
-import rdp_client.fastpath_input
+import rdp_pipe.fastpath_input
 
 
 class _FakeCryptoLayer:
@@ -27,12 +27,12 @@ class _FakeCryptoLayer:
 def test_build_fastpath_mouse_hover_pdu_unencrypted():
     """Unencrypted hover PDU uses one event and MOVE flag."""
 
-    pointer_flags = rdp_client.fastpath_input.build_pointer_flags_for_mouse_button(
+    pointer_flags = rdp_pipe.fastpath_input.build_pointer_flags_for_mouse_button(
         aardwolf.commons.queuedata.constants.MOUSEBUTTON.MOUSEBUTTON_HOVER,
         False,
         0)
 
-    pdu = rdp_client.fastpath_input.build_fastpath_mouse_input_pdu(
+    pdu = rdp_pipe.fastpath_input.build_fastpath_mouse_input_pdu(
         None,
         pointer_flags,
         662,
@@ -50,12 +50,12 @@ def test_build_fastpath_mouse_hover_pdu_encrypted():
     """Encrypted hover PDU reserves signature bytes before event data."""
 
     cryptolayer = _FakeCryptoLayer(use_encrypted_mac=False)
-    pointer_flags = rdp_client.fastpath_input.build_pointer_flags_for_mouse_button(
+    pointer_flags = rdp_pipe.fastpath_input.build_pointer_flags_for_mouse_button(
         aardwolf.commons.queuedata.constants.MOUSEBUTTON.MOUSEBUTTON_HOVER,
         False,
         0)
 
-    pdu = rdp_client.fastpath_input.build_fastpath_mouse_input_pdu(
+    pdu = rdp_pipe.fastpath_input.build_fastpath_mouse_input_pdu(
         cryptolayer,
         pointer_flags,
         10,

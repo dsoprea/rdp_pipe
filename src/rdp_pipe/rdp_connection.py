@@ -47,11 +47,11 @@ import aardwolf.vncconnection
 import asyauth.common.credentials
 import PIL.Image
 
-import rdp_client.connection_progress
-import rdp_client.display_control
-import rdp_client.pointer_debug
-import rdp_client.pointer_update
-import rdp_client.trust_store
+import rdp_pipe.connection_progress
+import rdp_pipe.display_control
+import rdp_pipe.pointer_debug
+import rdp_pipe.pointer_update
+import rdp_pipe.trust_store
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -393,9 +393,9 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
         aardwolf.connection.RDPConnection.__init__(self, target, credential, iosettings)
 
         self.resolution_changed_listeners = []
-        self.display_control_channel: rdp_client.display_control.DisplayControlChannel | None = None
+        self.display_control_channel: rdp_pipe.display_control.DisplayControlChannel | None = None
         self.progress_callback = None
-        self._pointer_cache = rdp_client.pointer_update.RdpPointerCache()
+        self._pointer_cache = rdp_pipe.pointer_update.RdpPointerCache()
         self._pointer_update_listener = None
         self._pointer_pdu_count_by_update_code: dict[int, int] = {}
         self._share_channel_task = None
@@ -447,7 +447,7 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
             return False
 
         return await open_virtual_channel(
-            rdp_client.display_control.DISPLAY_CONTROL_CHANNEL_NAME)
+            rdp_pipe.display_control.DISPLAY_CONTROL_CHANNEL_NAME)
 
     def _report_connection_progress(self, step_identifier: str):
         """Invoke the optional GUI progress callback for a connect step."""
@@ -593,7 +593,7 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
         try:
 
             self._report_connection_progress(
-                rdp_client.connection_progress.CONNECTION_STEP_CONNECTING)
+                rdp_pipe.connection_progress.CONNECTION_STEP_CONNECTING)
 
             connect_result = await aardwolf.connection.RDPConnection.connect(self)
 
@@ -992,7 +992,7 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
         """Verify or accept the server TLS certificate before CredSSP authentication."""
 
         self._report_connection_progress(
-            rdp_client.connection_progress.CONNECTION_STEP_VERIFYING_CERTIFICATE)
+            rdp_pipe.connection_progress.CONNECTION_STEP_VERIFYING_CERTIFICATE)
 
         transport_connection = self._RDPConnection__connection
         peer_certificate = transport_connection.get_peer_certificate()
@@ -1008,13 +1008,13 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
 
         trust_metadata = self._build_certificate_trust_metadata()
 
-        rdp_client.trust_store.verify_or_accept_server_certificate(
+        rdp_pipe.trust_store.verify_or_accept_server_certificate(
             remote_ip,
             peer_certificate,
             trust_metadata)
 
         self._report_connection_progress(
-            rdp_client.connection_progress.CONNECTION_STEP_AUTHENTICATING)
+            rdp_pipe.connection_progress.CONNECTION_STEP_AUTHENTICATING)
 
         return await aardwolf.connection.RDPConnection.credssp_auth(self)
 
@@ -1090,27 +1090,27 @@ def build_iosettings_with_display_control(
         & ~aardwolf.protocol.T125.extendedinfopacket.PERF.DISABLE_CURSORSETTINGS
         | aardwolf.protocol.T125.extendedinfopacket.PERF.DISABLE_CURSOR_SHADOW)
 
-    display_channel = rdp_client.display_control.DisplayControlChannel(
+    display_channel = rdp_pipe.display_control.DisplayControlChannel(
         resolution_request_callback=resolution_request_callback)
 
     iosettings.vchannels[
-        rdp_client.display_control.DISPLAY_CONTROL_CHANNEL_NAME] = display_channel
+        rdp_pipe.display_control.DISPLAY_CONTROL_CHANNEL_NAME] = display_channel
 
     return iosettings, display_channel
 
 
 async def _process_pointer_fastpath_update(
         connection: RdpDesktopConnection,
-        fastpath_update) -> rdp_client.pointer_update.RdpPointerUpdate | None:
+        fastpath_update) -> rdp_pipe.pointer_update.RdpPointerUpdate | None:
     """Translate a fast-path pointer update PDU into an RdpPointerUpdate."""
 
     update_code = fastpath_update.updateCode
 
     if update_code == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.PTR_DEFAULT:
-        return rdp_client.pointer_update.RdpPointerUpdate.build_default()
+        return rdp_pipe.pointer_update.RdpPointerUpdate.build_default()
 
     if update_code == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.PTR_NULL:
-        return rdp_client.pointer_update.RdpPointerUpdate.build_hidden()
+        return rdp_pipe.pointer_update.RdpPointerUpdate.build_hidden()
 
     if update_code == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.PTR_POSITION:
         return None
@@ -1118,7 +1118,7 @@ async def _process_pointer_fastpath_update(
     if update_code == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.COLOR:
         color_pointer_attribute = fastpath_update.update
 
-        return rdp_client.pointer_update.build_bitmap_pointer_update_from_color_attribute(
+        return rdp_pipe.pointer_update.build_bitmap_pointer_update_from_color_attribute(
             color_pointer_attribute,
             24,
             connection._pointer_cache,
@@ -1131,7 +1131,7 @@ async def _process_pointer_fastpath_update(
         if color_update_data is not None and len(color_update_data) > 2:
             color_update_data = color_update_data[2:]
 
-        return rdp_client.pointer_update.build_bitmap_pointer_update_from_color_attribute(
+        return rdp_pipe.pointer_update.build_bitmap_pointer_update_from_color_attribute(
             pointer_attribute.colorPtrAttr,
             pointer_attribute.xorBpp,
             connection._pointer_cache,
@@ -1140,7 +1140,7 @@ async def _process_pointer_fastpath_update(
     if update_code == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.LARGE_POINTER:
         large_pointer_attribute = fastpath_update.update
 
-        return rdp_client.pointer_update.build_bitmap_pointer_update_from_large_attribute(
+        return rdp_pipe.pointer_update.build_bitmap_pointer_update_from_large_attribute(
             large_pointer_attribute,
             connection._pointer_cache,
             fastpath_update.updateData)
@@ -1154,7 +1154,7 @@ async def _process_pointer_fastpath_update(
             _LOGGER.warning(
                 "pointer cache miss for CACHED index {cache_index}".format(
                     cache_index=cache_index))
-            rdp_client.pointer_debug.write_pointer_debug(
+            rdp_pipe.pointer_debug.write_pointer_debug(
                 "pointer pdu: CACHED cache miss index={cache_index}".format(
                     cache_index=cache_index))
 
@@ -1199,7 +1199,7 @@ async def _rdp_desktop_process_fastpath(self, fpdu):
             if pointer_update is not None:
                 debug_detail = "kind={kind}".format(kind=pointer_update.kind.value)
 
-                if pointer_update.kind == rdp_client.pointer_update.RdpPointerUpdateKind.BITMAP:
+                if pointer_update.kind == rdp_pipe.pointer_update.RdpPointerUpdateKind.BITMAP:
                     debug_detail = (
                         "kind=bitmap xor_bpp={xor_bpp} cache_index={cache_index} size={width}x{height}".format(
                             xor_bpp=pointer_update.xor_bits_per_pixel,
@@ -1207,7 +1207,7 @@ async def _rdp_desktop_process_fastpath(self, fpdu):
                             width=pointer_update.image.width if pointer_update.image is not None else 0,
                             height=pointer_update.image.height if pointer_update.image is not None else 0))
 
-                rdp_client.pointer_debug.write_pointer_debug(
+                rdp_pipe.pointer_debug.write_pointer_debug(
                     "pointer pdu: {update_code} {debug_detail}".format(
                         update_code=fpdu.fpOutputUpdates.updateCode,
                         debug_detail=debug_detail))
@@ -1217,7 +1217,7 @@ async def _rdp_desktop_process_fastpath(self, fpdu):
     except Exception as error:
         _LOGGER.error(
             "fastpath processing failed: {error}".format(error=error))
-        rdp_client.pointer_debug.write_pointer_debug(
+        rdp_pipe.pointer_debug.write_pointer_debug(
             "pointer pdu: fastpath error {error}".format(error=error))
 
 

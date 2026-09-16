@@ -13,8 +13,8 @@ import aardwolf.protocol.T128.clientconfirmactivepdu
 import aardwolf.protocol.T128.serverdemandactivepdu
 import aardwolf.protocol.T128.share
 
-import rdp_client.display_control
-import rdp_client.rdp_connection
+import rdp_pipe.display_control
+import rdp_pipe.rdp_connection
 
 
 def test_pointer_capabilityset_advertises_color_and_cache_sizes():
@@ -38,7 +38,7 @@ def test_augment_client_confirm_active_capabilities_adds_large_pointer_and_input
         aardwolf.protocol.pdu.capabilities.TS_CAPS_SET.from_capability(
             aardwolf.protocol.pdu.capabilities.input.TS_INPUT_CAPABILITYSET()))
 
-    rdp_client.rdp_connection._augment_client_confirm_active_capabilities(confirm_active_pdu)
+    rdp_pipe.rdp_connection._augment_client_confirm_active_capabilities(confirm_active_pdu)
 
     capability_types = [
         capability_set.capabilitySetType
@@ -77,7 +77,7 @@ def test_augment_client_confirm_active_sets_desktop_resize_flag():
         aardwolf.protocol.pdu.capabilities.TS_CAPS_SET.from_capability(
             aardwolf.protocol.pdu.capabilities.input.TS_INPUT_CAPABILITYSET()))
 
-    rdp_client.rdp_connection._augment_client_confirm_active_capabilities(confirm_active_pdu)
+    rdp_pipe.rdp_connection._augment_client_confirm_active_capabilities(confirm_active_pdu)
 
     resized_bitmap_capability = None
 
@@ -107,7 +107,7 @@ def test_apply_demand_active_desktop_size_reallocates_when_server_size_differs()
     demand_active = unittest.mock.Mock()
     demand_active.capabilitySets = [bitmap_capability_set]
 
-    rdp_client.rdp_connection.RdpDesktopConnection._apply_demand_active_desktop_size(
+    rdp_pipe.rdp_connection.RdpDesktopConnection._apply_demand_active_desktop_size(
         connection,
         demand_active)
 
@@ -118,7 +118,7 @@ def test_build_iosettings_does_not_disable_wallpaper():
     """Client must not ask the server to omit the desktop wallpaper."""
 
     iosettings, _display_control_channel = \
-        rdp_client.rdp_connection.build_iosettings_with_display_control(
+        rdp_pipe.rdp_connection.build_iosettings_with_display_control(
             1280,
             800)
 
@@ -142,7 +142,7 @@ def test_build_iosettings_honors_color_depth():
     """video_bpp_max and video_bpp_min match the requested color depth."""
 
     iosettings, _display_control_channel = \
-        rdp_client.rdp_connection.build_iosettings_with_display_control(
+        rdp_pipe.rdp_connection.build_iosettings_with_display_control(
             1280,
             800,
             color_depth=16)
@@ -155,7 +155,7 @@ def test_build_iosettings_maps_32bpp_wire_color_depth():
     """32-bpp sessions use 24 on the wire for aardwolf Client Core colorDepth fields."""
 
     iosettings, _display_control_channel = \
-        rdp_client.rdp_connection.build_iosettings_with_display_control(
+        rdp_pipe.rdp_connection.build_iosettings_with_display_control(
             1280,
             800,
             color_depth=32)
@@ -168,7 +168,7 @@ def test_get_connection_preserves_display_control_channel_identity():
     """Virtual channel instances in vchannels must not be duplicated by deepcopy."""
 
     iosettings, display_control_channel = \
-        rdp_client.rdp_connection.build_iosettings_with_display_control(
+        rdp_pipe.rdp_connection.build_iosettings_with_display_control(
             1280,
             800)
 
@@ -176,14 +176,14 @@ def test_get_connection_preserves_display_control_channel_identity():
         "rdp+ntlm-password://Administrator:placeholder@10.0.0.5"
 
     connection_factory = \
-        rdp_client.rdp_connection.RdpDesktopConnectionFactory.from_url(
+        rdp_pipe.rdp_connection.RdpDesktopConnectionFactory.from_url(
             connection_url,
             iosettings)
 
     connection = connection_factory.get_connection(iosettings)
 
     live_display_control_channel = connection.iosettings.vchannels[
-        rdp_client.display_control.DISPLAY_CONTROL_CHANNEL_NAME]
+        rdp_pipe.display_control.DISPLAY_CONTROL_CHANNEL_NAME]
 
     assert live_display_control_channel is display_control_channel
 
@@ -222,7 +222,7 @@ async def _collect_share_loop_reactivation_payloads():
     await out_queue.put((demand_active_bytes, None))
     await out_queue.put((None, RuntimeError("stop share loop")))
 
-    await rdp_client.rdp_connection.RdpDesktopConnection._run_share_channel_loop(
+    await rdp_pipe.rdp_connection.RdpDesktopConnection._run_share_channel_loop(
         connection)
 
     return connection._complete_deactivation_reactivation.await_args_list
@@ -263,7 +263,7 @@ async def _run_complete_deactivation_reactivation_with_caps_already_received():
             "from_bytes",
             return_value=demand_active):
 
-        await rdp_client.rdp_connection.RdpDesktopConnection._complete_deactivation_reactivation(
+        await rdp_pipe.rdp_connection.RdpDesktopConnection._complete_deactivation_reactivation(
             connection,
             b"demand-active")
 

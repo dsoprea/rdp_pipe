@@ -11,10 +11,10 @@ import aardwolf.commons.queuedata.video
 import PIL.Image
 import pytest
 
-import rdp_client.connection_progress
-import rdp_client.pointer_update
-import rdp_client.rdp_connection
-import rdp_client.rdp_session_core
+import rdp_pipe.connection_progress
+import rdp_pipe.pointer_update
+import rdp_pipe.rdp_connection
+import rdp_pipe.rdp_session_core
 
 import tests.support.mock_rdp_connection
 
@@ -33,7 +33,7 @@ def _patch_factory_from_url(monkeypatch, mock_connection):
         return stub_factory
 
     monkeypatch.setattr(
-        rdp_client.rdp_connection.RdpDesktopConnectionFactory,
+        rdp_pipe.rdp_connection.RdpDesktopConnectionFactory,
         "from_url",
         staticmethod(fake_from_url))
 
@@ -56,7 +56,7 @@ async def test_connect_without_caps_marks_display_unavailable(monkeypatch):
 
     _patch_factory_from_url(monkeypatch, mock_connection)
 
-    session = rdp_client.rdp_session_core.RdpAsyncSession(
+    session = rdp_pipe.rdp_session_core.RdpAsyncSession(
         CONNECTION_URL,
         1280,
         800)
@@ -68,7 +68,7 @@ async def test_connect_without_caps_marks_display_unavailable(monkeypatch):
 
     assert session.is_connected is True
     assert session.display_caps_unavailable is True
-    assert progress_steps[-1] == rdp_client.connection_progress.CONNECTION_STEP_READY
+    assert progress_steps[-1] == rdp_pipe.connection_progress.CONNECTION_STEP_READY
 
 
 async def test_drain_queued_pointer_updates_dispatches_before_video(connected_session):
@@ -84,7 +84,7 @@ async def test_drain_queued_pointer_updates_dispatches_before_video(connected_se
     video_rectangle.height = 4
     video_rectangle.data = PIL.Image.new("RGBA", (4, 4))
 
-    pointer_update = rdp_client.pointer_update.RdpPointerUpdate.build_default()
+    pointer_update = rdp_pipe.pointer_update.RdpPointerUpdate.build_default()
 
     await connected_session.connection.ext_out_queue.put(pointer_update)
     await connected_session.connection.ext_out_queue.put(video_rectangle)
@@ -92,7 +92,7 @@ async def test_drain_queued_pointer_updates_dispatches_before_video(connected_se
     await connected_session.drain_queued_pointer_updates()
 
     assert len(pointer_updates) == 1
-    assert pointer_updates[0].kind == rdp_client.pointer_update.RdpPointerUpdateKind.DEFAULT
+    assert pointer_updates[0].kind == rdp_pipe.pointer_update.RdpPointerUpdateKind.DEFAULT
 
     requeued_item = await asyncio.wait_for(
         connected_session.connection.ext_out_queue.get(),
@@ -145,14 +145,14 @@ async def test_handle_receive_screenshot_fails_without_buffer_data(monkeypatch):
 
     _patch_factory_from_url(monkeypatch, mock_connection)
 
-    session = rdp_client.rdp_session_core.RdpAsyncSession(
+    session = rdp_pipe.rdp_session_core.RdpAsyncSession(
         CONNECTION_URL,
         1280,
         800)
 
     await session.connect()
 
-    with pytest.raises(rdp_client.rdp_session_core.RdpSessionError):
+    with pytest.raises(rdp_pipe.rdp_session_core.RdpSessionError):
         await session.handle_receive_screenshot()
 
 

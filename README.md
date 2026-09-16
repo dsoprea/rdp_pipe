@@ -1,4 +1,4 @@
-# rdp_client
+# rdp_pipe
 
 Python desktop RDP client for Linux operators connecting to remote hosts over RDP with NLA (CredSSP) and NTLM password authentication. The UI is a native PyQt6 window with pointer-gated keyboard input and seamless resize via MS-RDPEDISP when the server supports it.
 
@@ -105,16 +105,16 @@ printf '%s\n' '{"command":"receive_geometry"}' | nc -U /tmp/rdp.sock
 
 ## Monkey-patching
 
-This client patches **aardwolf** at runtime instead of vendoring or forking the library. Patches live in production code under `src/rdp_client/` (not in tests). Each patch replaces a symbol on import; subclass overrides on `RdpDesktopConnection` are normal inheritance and are not listed here.
+This client patches **aardwolf** at runtime instead of vendoring or forking the library. Patches live in production code under `src/rdp_pipe/` (not in tests). Each patch replaces a symbol on import; subclass overrides on `RdpDesktopConnection` are normal inheritance and are not listed here.
 
 | Target | Replacement | Why |
 |--------|-------------|-----|
-| `aardwolf.protocol.T124.userdata.clientcoredata.TS_UD_CS_CORE.to_bytes` | `_patched_ts_ud_cs_core_to_bytes` in [`rdp_connection.py`](src/rdp_client/rdp_connection.py) | During desktop connect, advertise `SUPPORT_MONITOR_LAYOUT_PDU` and (when `--color-depth` is 32) `WANT_32BPP_SESSION` / 24-bpp high color in Client Core Data. Active only while `RdpDesktopConnection.connect()` runs (`_CONNECTING_DESKTOP_CONNECTION` gate). |
-| `aardwolf.protocol.pdu.capabilities.pointer.TS_POINTER_CAPABILITYSET.__init__` | `_patched_pointer_capabilityset_init` in [`rdp_connection.py`](src/rdp_client/rdp_connection.py) | Advertise `colorPointerFlag=True` so the server sends color/cached pointer updates for hover cursor shapes. |
-| `aardwolf.connection.RDPConnection.handle_out_data` | `_patched_handle_out_data` in [`rdp_connection.py`](src/rdp_client/rdp_connection.py) | Before every Confirm Active (connect and mid-session reactivation), set `desktopResizeFlag=True` and add LARGE_POINTER / UNICODE / MOUSE_HWHEEL that aardwolf omits. |
-| `RdpDesktopConnection._RDPConnection__process_fastpath` | `_rdp_desktop_process_fastpath` in [`rdp_connection.py`](src/rdp_client/rdp_connection.py) | Stock aardwolf handles fast-path `BITMAP` only. Our handler also forwards bitmap tiles without inferring resolution from tile size, and emits pointer updates (`COLOR`, `POINTER`, `CACHED`, etc.) for remote cursor mirroring. |
-| `aardwolf.extensions.RDPECLIP.channel.RDPECLIPChannel._handle_format_data_request` | `_patched_rdpeclip_handle_format_data_request` in [`rdp_connection.py`](src/rdp_client/rdp_connection.py) | aardwolf dereferences `clipboard.data.datatype` without checking for `None`. After connect we advertise standard clipboard formats even when the local clipboard is empty; a remote `CB_FORMAT_DATA_REQUEST` then crashed the x224 reader. Reply with `CB_RESPONSE_FAIL` when `clipboard.data` is unset. |
-| `aardwolf.connection.RDPConnection.terminate` | `_patched_aardwolf_terminate` in [`rdp_connection.py`](src/rdp_client/rdp_connection.py) | Stock aardwolf always calls `send_disconnect()` and logs `Error while requesting shutdown` when the MCS channel is missing (failed connect) or the TCP socket is already reset. Skip graceful shutdown when MCS/server connect data are absent; suppress the warning for expected transport errors during reconnect teardown. |
+| `aardwolf.protocol.T124.userdata.clientcoredata.TS_UD_CS_CORE.to_bytes` | `_patched_ts_ud_cs_core_to_bytes` in [`rdp_connection.py`](src/rdp_pipe/rdp_connection.py) | During desktop connect, advertise `SUPPORT_MONITOR_LAYOUT_PDU` and (when `--color-depth` is 32) `WANT_32BPP_SESSION` / 24-bpp high color in Client Core Data. Active only while `RdpDesktopConnection.connect()` runs (`_CONNECTING_DESKTOP_CONNECTION` gate). |
+| `aardwolf.protocol.pdu.capabilities.pointer.TS_POINTER_CAPABILITYSET.__init__` | `_patched_pointer_capabilityset_init` in [`rdp_connection.py`](src/rdp_pipe/rdp_connection.py) | Advertise `colorPointerFlag=True` so the server sends color/cached pointer updates for hover cursor shapes. |
+| `aardwolf.connection.RDPConnection.handle_out_data` | `_patched_handle_out_data` in [`rdp_connection.py`](src/rdp_pipe/rdp_connection.py) | Before every Confirm Active (connect and mid-session reactivation), set `desktopResizeFlag=True` and add LARGE_POINTER / UNICODE / MOUSE_HWHEEL that aardwolf omits. |
+| `RdpDesktopConnection._RDPConnection__process_fastpath` | `_rdp_desktop_process_fastpath` in [`rdp_connection.py`](src/rdp_pipe/rdp_connection.py) | Stock aardwolf handles fast-path `BITMAP` only. Our handler also forwards bitmap tiles without inferring resolution from tile size, and emits pointer updates (`COLOR`, `POINTER`, `CACHED`, etc.) for remote cursor mirroring. |
+| `aardwolf.extensions.RDPECLIP.channel.RDPECLIPChannel._handle_format_data_request` | `_patched_rdpeclip_handle_format_data_request` in [`rdp_connection.py`](src/rdp_pipe/rdp_connection.py) | aardwolf dereferences `clipboard.data.datatype` without checking for `None`. After connect we advertise standard clipboard formats even when the local clipboard is empty; a remote `CB_FORMAT_DATA_REQUEST` then crashed the x224 reader. Reply with `CB_RESPONSE_FAIL` when `clipboard.data` is unset. |
+| `aardwolf.connection.RDPConnection.terminate` | `_patched_aardwolf_terminate` in [`rdp_connection.py`](src/rdp_pipe/rdp_connection.py) | Stock aardwolf always calls `send_disconnect()` and logs `Error while requesting shutdown` when the MCS channel is missing (failed connect) or the TCP socket is already reset. Skip graceful shutdown when MCS/server connect data are absent; suppress the warning for expected transport errors during reconnect teardown. |
 
 When adding or changing a runtime monkey-patch, update this section in the same change set.
 

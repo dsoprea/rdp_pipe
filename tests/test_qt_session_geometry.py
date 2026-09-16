@@ -7,7 +7,7 @@ import PyQt6.QtGui
 import PyQt6.QtWidgets
 import pytest
 
-import rdp_client.qt_session_window
+import rdp_pipe.qt_session_window
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +37,7 @@ def _build_large_test_frame_image() -> PyQt6.QtGui.QImage:
 def test_canvas_stays_shrinkable_after_large_frame_image(qt_application):
     """RdpCanvas stays shrinkable after a large framebuffer without QLabel pixmap hints."""
 
-    canvas = rdp_client.qt_session_window.RdpCanvas()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
     canvas.set_frame_image(_build_large_test_frame_image())
 
     assert canvas.minimumSize().width() == 0
@@ -57,7 +57,7 @@ def test_main_window_stays_shrinkable_after_large_frame_image(qt_application):
 
     main_window = PyQt6.QtWidgets.QMainWindow()
     main_window.setMinimumSize(0, 0)
-    session_container = rdp_client.qt_session_window.RdpSessionContainer()
+    session_container = rdp_pipe.qt_session_window.RdpSessionContainer()
     main_window.setCentralWidget(session_container)
     session_container.canvas.set_frame_image(_build_large_test_frame_image())
     main_window.resize(1500, 900)
@@ -70,7 +70,7 @@ def test_main_window_stays_shrinkable_after_large_frame_image(qt_application):
 def test_session_container_resize_debounce_emits_client_area_size(qt_application):
     """Container resize debounce uses the container rect, not framebuffer size hints."""
 
-    container = rdp_client.qt_session_window.RdpSessionContainer()
+    container = rdp_pipe.qt_session_window.RdpSessionContainer()
     container.resize(1500, 850)
     container.resizeEvent(
         PyQt6.QtGui.QResizeEvent(
@@ -90,7 +90,7 @@ def test_session_container_resize_debounce_emits_client_area_size(qt_application
 
 def _build_session_window_with_mock_worker(
         autoresize_enabled: bool) -> tuple[
-            rdp_client.qt_session_window.RdpSessionWindow,
+            rdp_pipe.qt_session_window.RdpSessionWindow,
             mock.Mock]:
 
     mock_worker = mock.Mock()
@@ -100,12 +100,12 @@ def _build_session_window_with_mock_worker(
     mock_worker_thread = mock.Mock()
 
     with mock.patch(
-            "rdp_client.rdp_session_thread.RdpSessionWorker",
+            "rdp_pipe.rdp_session_thread.RdpSessionWorker",
             return_value=mock_worker):
         with mock.patch(
                 "PyQt6.QtCore.QThread",
                 return_value=mock_worker_thread):
-            session_window = rdp_client.qt_session_window.RdpSessionWindow(
+            session_window = rdp_pipe.qt_session_window.RdpSessionWindow(
                 "rdp+ntlm-password://user@10.0.0.5",
                 1280,
                 800,

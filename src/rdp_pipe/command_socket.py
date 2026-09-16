@@ -8,8 +8,8 @@ import socket
 import threading
 import traceback
 
-import rdp_client.rdp_input
-import rdp_client.rdp_session_core
+import rdp_pipe.rdp_input
+import rdp_pipe.rdp_session_core
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -124,7 +124,7 @@ def send_command_request(socket_path: str, request_body: dict) -> dict:
 class CommandSocketServer:
     """Serve newline-delimited JSON commands over a Unix domain socket."""
 
-    def __init__(self, socket_path: str, session: rdp_client.rdp_session_core.RdpAsyncSession):
+    def __init__(self, socket_path: str, session: rdp_pipe.rdp_session_core.RdpAsyncSession):
         """Bind session handlers to a Unix socket at socket_path."""
 
         self._socket_path = socket_path
@@ -142,7 +142,7 @@ class CommandSocketServer:
 
         self._server_thread.start()
 
-    def set_session(self, session: rdp_client.rdp_session_core.RdpAsyncSession):
+    def set_session(self, session: rdp_pipe.rdp_session_core.RdpAsyncSession):
         """Point automation commands at a new session after reconnect."""
 
         self._session = session
@@ -235,10 +235,10 @@ class CommandSocketServer:
 
             return build_success_response(result)
 
-        except rdp_client.rdp_input.RdpInputError as error:
+        except rdp_pipe.rdp_input.RdpInputError as error:
             return build_error_response(str(error))
 
-        except rdp_client.rdp_session_core.RdpSessionError as error:
+        except rdp_pipe.rdp_session_core.RdpSessionError as error:
             return build_error_response(str(error))
 
         except Exception as error:
@@ -252,7 +252,7 @@ class CommandSocketServer:
 
         event_loop = self._session.event_loop
         if event_loop is None:
-            raise rdp_client.rdp_session_core.RdpSessionError(
+            raise rdp_pipe.rdp_session_core.RdpSessionError(
                 "RDP session is reconnecting")
 
         command_future = asyncio.run_coroutine_threadsafe(
