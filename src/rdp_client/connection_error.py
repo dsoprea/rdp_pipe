@@ -95,3 +95,12 @@ def format_session_ended_stderr(error: BaseException) -> str:
 
     return "error: RDP session ended unexpectedly ({failure_reason})\n".format(
         failure_reason=failure_reason)
+
+
+def format_session_disconnected_reconnecting_stderr(connection_url: str) -> str:
+    """Return a managed stderr line when a live session drops and reconnect begins."""
+
+    endpoint = parse_connection_endpoint(connection_url)
+
+    return "error: RDP session to {endpoint} disconnected; reconnecting...\n".format(
+        endpoint=endpoint)

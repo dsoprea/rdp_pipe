@@ -130,6 +130,9 @@ class RdpConnectingOverlay(PyQt6.QtWidgets.QWidget):
             if step_identifier == rdp_client.connection_progress.CONNECTION_STEP_READY:
                 continue
 
+            if step_identifier == rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING:
+                continue
+
             step_label = rdp_client.connection_progress.get_connection_step_label(
                 step_identifier)
 
@@ -170,6 +173,13 @@ class RdpConnectingOverlay(PyQt6.QtWidgets.QWidget):
     def set_progress_step(self, step_identifier: str):
         """Advance the modal to the given connection step."""
 
+        if step_identifier == rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING:
+            self._title_label.setText("Reconnecting")
+            self.show()
+            return
+
+        self._title_label.setText("Connecting")
+
         if step_identifier == rdp_client.connection_progress.CONNECTION_STEP_READY:
             self.hide()
             return
@@ -181,6 +191,9 @@ class RdpConnectingOverlay(PyQt6.QtWidgets.QWidget):
                 rdp_client.connection_progress.ORDERED_CONNECTION_STEPS):
 
             if listed_step_identifier == rdp_client.connection_progress.CONNECTION_STEP_READY:
+                continue
+
+            if listed_step_identifier == rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING:
                 continue
 
             step_row = self._step_rows_by_identifier[listed_step_identifier]
@@ -1246,7 +1259,6 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._worker.pointer_update_ready.connect(
             self._handle_pointer_update,
             PyQt6.QtCore.Qt.ConnectionType.QueuedConnection)
-        self._worker.connection_terminated.connect(self._handle_connection_terminated)
         self._worker.resolution_changed.connect(self._handle_resolution_changed)
         self._worker.display_caps_unavailable.connect(self._handle_display_caps_unavailable)
         self._worker.session_ready.connect(self._handle_session_ready)
@@ -1258,6 +1270,9 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
     def _handle_connection_progress(self, step_identifier: str):
         """Update the connecting overlay as the background session advances."""
+
+        if step_identifier == rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING:
+            self._session_rdp_ready = False
 
         self._connecting_overlay.set_progress_step(step_identifier)
 
@@ -1289,11 +1304,15 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         if self._command_socket_path is None:
             return
 
-        self._command_server = rdp_client.command_socket.CommandSocketServer(
-            self._command_socket_path,
-            session)
+        if self._command_server is None:
+            self._command_server = rdp_client.command_socket.CommandSocketServer(
+                self._command_socket_path,
+                session)
 
-        self._command_server.start()
+            self._command_server.start()
+
+        else:
+            self._command_server.set_session(session)
 
     def _handle_pointer_update(self, pointer_update: rdp_client.pointer_update.RdpPointerUpdate):
         """Apply a server pointer update to the session canvas."""
@@ -1379,11 +1398,6 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         clamped_height = rdp_client.display_control.clamp_display_height(height)
 
         self._worker.request_remote_resolution(even_width, clamped_height)
-
-    def _handle_connection_terminated(self):
-        """Close the window when the background session ends."""
-
-        self.close()
 
     def _handle_application_about_to_quit(self):
         """Tear down the RDP session when the Qt application exits."""

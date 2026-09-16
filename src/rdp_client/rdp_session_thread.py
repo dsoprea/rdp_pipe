@@ -8,11 +8,15 @@ import threading
 import PyQt6.QtCore
 
 import rdp_client.connection_error
+import rdp_client.connection_progress
 import rdp_client.pointer_update
 import rdp_client.rdp_session_core
 
 
 _LOGGER = logging.getLogger(__name__)
+
+SESSION_RECONNECT_DELAY_SECONDS = 1.0
+SESSION_RECONNECT_POLL_SECONDS = 0.1
 
 
 def close_event_loop_after_cancelling_pending_tasks(
@@ -152,75 +156,117 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
         self.connection_progress.emit(step_identifier)
 
+    async def _wait_before_reconnect(self):
+        """Pause between reconnect attempts while honoring cooperative shutdown."""
+
+        deadline = asyncio.get_event_loop().time() + SESSION_RECONNECT_DELAY_SECONDS
+
+        while self._gui_stopped_event.is_set() is False:
+
+            remaining_seconds = deadline - asyncio.get_event_loop().time()
+
+            if remaining_seconds <= 0:
+                return
+
+            sleep_seconds = SESSION_RECONNECT_POLL_SECONDS
+
+            if remaining_seconds < sleep_seconds:
+                sleep_seconds = remaining_seconds
+
+            await asyncio.sleep(sleep_seconds)
+
     async def _run_connection(self):
-        """Connect, stream VIDEO events, and honor shutdown."""
+        """Connect, stream VIDEO events, reconnect after drops, and honor shutdown."""
 
-        connect_succeeded = False
+        had_successful_session = False
 
-        try:
-            self._session = rdp_client.rdp_session_core.RdpAsyncSession(
-                self._connection_url,
-                self._video_width,
-                self._video_height,
-                color_depth=self._color_depth,
-                activity_stamp_filepath=self._activity_stamp_filepath)
+        while self._gui_stopped_event.is_set() is False:
 
-            self._session.add_video_frame_callback(self._emit_video_frame)
-            self._session.add_pointer_update_callback(self._emit_pointer_update)
-            self._session.add_resolution_changed_callback(self._emit_resolution_changed)
-            self._session.set_progress_callback(self._emit_connection_progress)
+            if had_successful_session:
+                self.connection_progress.emit(
+                    rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING)
 
-            await self._session.connect()
-            connect_succeeded = True
-            await self._session.drain_queued_pointer_updates()
+            connect_succeeded = False
+            self._input_forwarder_future = None
 
-            if self._session.display_caps_unavailable:
-                self.display_caps_unavailable.emit()
+            try:
+                self._session = rdp_client.rdp_session_core.RdpAsyncSession(
+                    self._connection_url,
+                    self._video_width,
+                    self._video_height,
+                    color_depth=self._color_depth,
+                    activity_stamp_filepath=self._activity_stamp_filepath)
 
-            self.session_ready.emit(self._session)
+                self._session.add_video_frame_callback(self._emit_video_frame)
+                self._session.add_pointer_update_callback(self._emit_pointer_update)
+                self._session.add_resolution_changed_callback(self._emit_resolution_changed)
+                self._session.set_progress_callback(self._emit_connection_progress)
 
-            event_loop = asyncio.get_event_loop()
-            self._input_forwarder_future = event_loop.run_in_executor(
-                None,
-                self._input_forwarder,
-                event_loop)
+                await self._session.connect()
+                connect_succeeded = True
+                await self._session.drain_queued_pointer_updates()
 
-            await self._session.run_until_stopped()
+                if self._session.display_caps_unavailable:
+                    self.display_caps_unavailable.emit()
 
-        except asyncio.CancelledError:
-            return
+                self.session_ready.emit(self._session)
 
-        except Exception as error:
+                event_loop = asyncio.get_event_loop()
+                self._input_forwarder_future = event_loop.run_in_executor(
+                    None,
+                    self._input_forwarder,
+                    event_loop)
 
-            if connect_succeeded:
-                session_ended_stderr = \
-                    rdp_client.connection_error.format_session_ended_stderr(error)
-                sys.stderr.write(session_ended_stderr)
+                await self._session.run_until_stopped()
 
-            else:
-                connection_failure_stderr = \
-                    rdp_client.connection_error.format_connection_failure_stderr(
-                        self._connection_url,
-                        error)
-                sys.stderr.write(connection_failure_stderr)
+                if connect_succeeded and self._gui_stopped_event.is_set() is False:
+                    disconnected_stderr = \
+                        rdp_client.connection_error.format_session_disconnected_reconnecting_stderr(
+                            self._connection_url)
+                    sys.stderr.write(disconnected_stderr)
 
-        finally:
-            if self._session is not None:
+            except asyncio.CancelledError:
+                return
 
-                # Shield so a cancelled connect task still finishes terminate().
+            except Exception as error:
 
-                try:
-                    session_stop = self._session.stop()
-                    await asyncio.shield(session_stop)
+                if connect_succeeded:
+                    session_ended_stderr = \
+                        rdp_client.connection_error.format_session_ended_stderr(error)
+                    sys.stderr.write(session_ended_stderr)
 
-                except asyncio.CancelledError:
-                    pass
+                else:
+                    connection_failure_stderr = \
+                        rdp_client.connection_error.format_connection_failure_stderr(
+                            self._connection_url,
+                            error)
+                    sys.stderr.write(connection_failure_stderr)
 
-            if self._input_forwarder_future is not None:
-                self._input_forwarder_future.cancel()
+            finally:
+                if self._session is not None:
 
-            if not self._gui_stopped_event.is_set():
-                self.connection_terminated.emit()
+                    # Shield so a cancelled connect task still finishes terminate().
+
+                    try:
+                        session_stop = self._session.stop()
+                        await asyncio.shield(session_stop)
+
+                    except asyncio.CancelledError:
+                        pass
+
+                    self._session = None
+
+                if self._input_forwarder_future is not None:
+                    self._input_forwarder_future.cancel()
+                    self._input_forwarder_future = None
+
+                if connect_succeeded:
+                    had_successful_session = True
+
+            if self._gui_stopped_event.is_set():
+                break
+
+            await self._wait_before_reconnect()
 
     def _async_thread_main(self):
         """Create an asyncio loop and run the connection coroutine."""

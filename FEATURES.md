@@ -53,6 +53,7 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 - Partial framebuffer updates from aardwolf `RDP_VIDEO` rectangles
 - Remote desktop wallpaper when the server provides it (client does not request `DISABLE_WALLPAPER` at connect)
 - Closing the window sends an RDP disconnect and waits for the session to end before the process exits
+- Automatic reconnect: when the server drops or restarts, the client shows a reconnecting overlay, prints a managed stderr line (`error: RDP session to host:port disconnected; reconnecting...`), and retries until the session is back or the operator closes the window / presses Ctrl+C
 
 ## Seamless resize (MS-RDPEDISP)
 

@@ -142,6 +142,11 @@ class CommandSocketServer:
 
         self._server_thread.start()
 
+    def set_session(self, session: rdp_client.rdp_session_core.RdpAsyncSession):
+        """Point automation commands at a new session after reconnect."""
+
+        self._session = session
+
     def stop(self):
         """Stop the accept loop and close the listening socket."""
 
@@ -248,7 +253,7 @@ class CommandSocketServer:
         event_loop = self._session.event_loop
         if event_loop is None:
             raise rdp_client.rdp_session_core.RdpSessionError(
-                "RDP session event loop is not running")
+                "RDP session is reconnecting")
 
         command_future = asyncio.run_coroutine_threadsafe(
             self._handle_command(request_body),

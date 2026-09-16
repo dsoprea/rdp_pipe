@@ -119,28 +119,30 @@ async def run_headless_session_async(
         activity_stamp_filepath: str | None,
         color_depth: int) -> int:
 
-    """Connect headlessly and serve automation commands."""
+    """Connect headlessly, serve automation commands, and reconnect after drops."""
 
     import rdp_client.command_socket
+    import rdp_client.connection_error
+    import rdp_client.connection_progress
     import rdp_client.rdp_session_core
-
-    session = rdp_client.rdp_session_core.RdpAsyncSession(
-        connection_url,
-        DEFAULT_VIDEO_WIDTH,
-        DEFAULT_VIDEO_HEIGHT,
-        color_depth=color_depth,
-        activity_stamp_filepath=activity_stamp_filepath)
-
-    session.set_progress_callback(write_connection_progress_to_stderr)
+    import rdp_client.rdp_session_thread
 
     command_server = None
+    current_session = None
+    had_successful_session = False
+    shutdown_requested = False
     event_loop = asyncio.get_running_loop()
     lifecycle_task = asyncio.current_task()
 
     def handle_shutdown_signal():
         """Stop the session and cancel connect or output-loop waits on terminal Ctrl+C."""
 
-        asyncio.create_task(session.stop())
+        nonlocal shutdown_requested
+
+        shutdown_requested = True
+
+        if current_session is not None:
+            asyncio.create_task(current_session.stop())
 
         if lifecycle_task is not None:
             lifecycle_task.cancel()
@@ -149,30 +151,94 @@ async def run_headless_session_async(
     event_loop.add_signal_handler(signal.SIGTERM, handle_shutdown_signal)
 
     try:
-        try:
-            await session.connect()
+        while shutdown_requested is False:
 
-        except Exception as error:
-            import rdp_client.connection_error
+            if had_successful_session:
+                write_connection_progress_to_stderr(
+                    rdp_client.connection_progress.CONNECTION_STEP_RECONNECTING)
 
-            connection_failure_stderr = \
-                rdp_client.connection_error.format_connection_failure_stderr(
-                    connection_url,
-                    error)
-            sys.stderr.write(connection_failure_stderr)
+            session = rdp_client.rdp_session_core.RdpAsyncSession(
+                connection_url,
+                DEFAULT_VIDEO_WIDTH,
+                DEFAULT_VIDEO_HEIGHT,
+                color_depth=color_depth,
+                activity_stamp_filepath=activity_stamp_filepath)
 
-            return 1
+            current_session = session
+            session.set_progress_callback(write_connection_progress_to_stderr)
 
-        command_server = rdp_client.command_socket.CommandSocketServer(
-            command_socket_path,
-            session)
+            connect_succeeded = False
 
-        command_server.start()
+            try:
+                await session.connect()
+                connect_succeeded = True
 
-        sys.stderr.write(
-            "listening on {socket_path}\n".format(socket_path=command_socket_path))
+                if command_server is None:
+                    command_server = rdp_client.command_socket.CommandSocketServer(
+                        command_socket_path,
+                        session)
 
-        await session.run_until_stopped()
+                    command_server.start()
+
+                    sys.stderr.write(
+                        "listening on {socket_path}\n".format(
+                            socket_path=command_socket_path))
+
+                else:
+                    command_server.set_session(session)
+
+                await session.run_until_stopped()
+
+                if connect_succeeded and shutdown_requested is False:
+                    disconnected_stderr = \
+                        rdp_client.connection_error.format_session_disconnected_reconnecting_stderr(
+                            connection_url)
+                    sys.stderr.write(disconnected_stderr)
+
+            except asyncio.CancelledError:
+                break
+
+            except Exception as error:
+
+                if connect_succeeded:
+                    session_ended_stderr = \
+                        rdp_client.connection_error.format_session_ended_stderr(error)
+                    sys.stderr.write(session_ended_stderr)
+
+                else:
+                    connection_failure_stderr = \
+                        rdp_client.connection_error.format_connection_failure_stderr(
+                            connection_url,
+                            error)
+                    sys.stderr.write(connection_failure_stderr)
+
+            finally:
+                await session.stop()
+                current_session = None
+
+                if connect_succeeded:
+                    had_successful_session = True
+
+            if shutdown_requested:
+                break
+
+            reconnect_deadline = \
+                event_loop.time() + rdp_client.rdp_session_thread.SESSION_RECONNECT_DELAY_SECONDS
+
+            while shutdown_requested is False:
+
+                remaining_seconds = reconnect_deadline - event_loop.time()
+
+                if remaining_seconds <= 0:
+                    break
+
+                sleep_seconds = \
+                    rdp_client.rdp_session_thread.SESSION_RECONNECT_POLL_SECONDS
+
+                if remaining_seconds < sleep_seconds:
+                    sleep_seconds = remaining_seconds
+
+                await asyncio.sleep(sleep_seconds)
 
     except asyncio.CancelledError:
         pass
@@ -180,8 +246,6 @@ async def run_headless_session_async(
     finally:
         if command_server is not None:
             command_server.stop()
-
-        await session.stop()
 
     return 0
 
