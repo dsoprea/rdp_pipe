@@ -5,9 +5,11 @@ import logging
 import sys
 import queue
 import threading
+import aardwolf.commons.queuedata
 import PyQt6.QtCore
 
 import rdp_pipe.connection_error
+import rdp_pipe.keyboard_debug
 import rdp_pipe.connection_progress
 import rdp_pipe.pointer_update
 import rdp_pipe.rdp_session_core
@@ -141,6 +143,17 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
             if input_item is None:
                 break
+
+            if rdp_pipe.keyboard_debug.is_keyboard_debug_enabled():
+                input_type = getattr(input_item, "type", None)
+
+                if input_type in (
+                        aardwolf.commons.queuedata.RDPDATATYPE.KEYSCAN,
+                        aardwolf.commons.queuedata.RDPDATATYPE.KEYUNICODE):
+
+                    rdp_pipe.keyboard_debug.write_keyboard_debug(
+                        "keyboard forwarder dequeued type={input_type}".format(
+                            input_type=input_type))
 
             event_loop.call_soon_threadsafe(
                 self._session.connection.ext_in_queue.put_nowait,

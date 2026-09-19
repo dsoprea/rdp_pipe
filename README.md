@@ -212,3 +212,5 @@ Offline unit tests cover URL/password handling, RDPDISP PDU encoding, pointer ma
 Connect to an RDP host with NLA enabled. Resize the client window and confirm the remote display resolution tracks when the server supports RDPDISP. Servers without RDPDISP keep a fixed session resolution; the local window may letterbox until disconnect.
 
 To trace remote pointer mirroring (PDU types, apply/skip decisions, forwarded hover coordinates), run with `RDP_POINTER_DEBUG=1` and watch stderr while moving the mouse over window borders and text fields.
+
+To trace keyboard capture after idle (Qt key events, pointer-inside gating, enqueue, forwarder dequeue), run with `RDP_KEYBOARD_DEBUG=1`. If GUI keys show no `keyPressEvent` lines but `rdpr send_key` still works, focus was stolen locally; if both fail, check stderr for `RDP deactivation-reactivation failed`.

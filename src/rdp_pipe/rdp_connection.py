@@ -5,6 +5,7 @@ import copy
 import datetime
 import errno
 import logging
+import sys
 import traceback
 
 import aardwolf.commons.factory
@@ -795,12 +796,25 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
 
                 except Exception as reactivation_error:
 
-                    _LOGGER.error(
-                        "RDP deactivation-reactivation failed: {error}".format(
-                            error=reactivation_error))
+                    reactivation_failure_message = \
+                        "error: RDP deactivation-reactivation failed: {error}".format(
+                            error=reactivation_error)
+                    _LOGGER.error(reactivation_failure_message)
+                    sys.stderr.write(reactivation_failure_message)
+                    sys.stderr.write("\n")
 
         except asyncio.CancelledError:
             return
+
+    async def _release_keyboard_modifiers_after_reactivation(self):
+        """Release common modifier scancodes after mid-session reactivation."""
+
+        # Left/right shift, left control, left alt — stale presses block later keys.
+
+        modifier_scancode_list = (42, 54, 29, 56)
+
+        for modifier_scancode in modifier_scancode_list:
+            await self.send_key_scancode(modifier_scancode, False, False)
 
     async def _complete_deactivation_reactivation(self, demand_active_payload: bytes):
         """Answer a mid-session Demand Active after RDPDISP changes desktop size."""
@@ -821,6 +835,7 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
         await self._await_synchronize_after_confirm_active(data_start_offset)
         await self._finish_mandatory_capability_exchange_after_synchronize()
         await self.open_display_control_channel()
+        await self._release_keyboard_modifiers_after_reactivation()
 
         if self.display_control_channel is None:
             return

@@ -18,6 +18,7 @@ import rdp_pipe.command_socket
 import rdp_pipe.connection_progress
 import rdp_pipe.connection_url
 import rdp_pipe.display_control
+import rdp_pipe.keyboard_debug
 import rdp_pipe.mouse_debug
 import rdp_pipe.pointer_debug
 import rdp_pipe.qt_session_mapping
@@ -853,16 +854,46 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
                         origin_y=origin.y(),
                         canvas_device_pixel_ratio=self.devicePixelRatioF()))
 
-    def _enqueue_keyboard_event(self, key_event: PyQt6.QtGui.QKeyEvent, is_pressed: bool):
-        """Forward scancode keyboard events when the pointer is inside the canvas."""
+    def _prepare_canvas_for_keyboard_input(self, focus_canvas: bool):
+        """Mark the pointer inside the canvas and optionally focus for key events."""
+
+        self._pointer_inside_canvas = True
+
+        if focus_canvas:
+            self.setFocus(PyQt6.QtCore.Qt.FocusReason.MouseFocusReason)
+
+    def refocus_keyboard_input_if_pointer_over_canvas(self):
+        """Reclaim keyboard focus when the session window activates with pointer over canvas."""
 
         if self._viewer_mode:
             return
 
+        cursor_widget_position = self.mapFromGlobal(PyQt6.QtGui.QCursor.pos())
+
+        if self.rect().contains(cursor_widget_position):
+            self._prepare_canvas_for_keyboard_input(True)
+
+            return
+
+        if self._pointer_inside_canvas:
+            self._prepare_canvas_for_keyboard_input(True)
+
+    def _enqueue_keyboard_event(self, key_event: PyQt6.QtGui.QKeyEvent, is_pressed: bool):
+        """Forward scancode keyboard events when the pointer is inside the canvas."""
+
+        if self._viewer_mode:
+            rdp_pipe.keyboard_debug.write_keyboard_debug("keyboard drop: viewer_mode")
+
+            return
+
         if self._pointer_inside_canvas is False:
+            rdp_pipe.keyboard_debug.write_keyboard_debug("keyboard drop: pointer_outside")
+
             return
 
         if self._input_queue is None:
+            rdp_pipe.keyboard_debug.write_keyboard_debug("keyboard drop: no_input_queue")
+
             return
 
         modifiers = aardwolf.keyboard.VK_MODIFIERS(0)
@@ -894,6 +925,13 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
         self._input_queue.put(keyboard_message)
 
+        rdp_pipe.keyboard_debug.write_keyboard_debug(
+            "keyboard enqueued scancode={scancode} pressed={is_pressed} modifiers={modifiers} vk_code={vk_code}".format(
+                scancode=keyboard_message.keyCode,
+                is_pressed=is_pressed,
+                modifiers=modifiers,
+                vk_code=keyboard_message.vk_code))
+
     def _restore_visible_local_cursor_for_window_chrome(self):
         """Restore a visible arrow on ancestors the WM title bar may inherit."""
 
@@ -914,8 +952,7 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
     def enterEvent(self, enter_event: PyQt6.QtGui.QEnterEvent):
         """Track pointer entry and focus the canvas for keyboard input."""
 
-        self._pointer_inside_canvas = True
-        self.setFocus(PyQt6.QtCore.Qt.FocusReason.MouseFocusReason)
+        self._prepare_canvas_for_keyboard_input(True)
         widget_position = self._widget_position_from_point(enter_event.position())
         self._last_pointer_widget_position = widget_position
         self._cursor_overlay.set_pointer_position(widget_position)
@@ -1067,8 +1104,28 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
 
         self.setCursor(PyQt6.QtCore.Qt.CursorShape.BlankCursor)
 
+    def focusInEvent(self, focus_in_event: PyQt6.QtGui.QFocusEvent):
+        """Log canvas focus changes when keyboard debug tracing is enabled."""
+
+        rdp_pipe.keyboard_debug.write_keyboard_debug(
+            "keyboard focusIn reason={reason}".format(
+                reason=focus_in_event.reason()))
+
+        super().focusInEvent(focus_in_event)
+
+    def focusOutEvent(self, focus_out_event: PyQt6.QtGui.QFocusEvent):
+        """Log canvas focus loss when keyboard debug tracing is enabled."""
+
+        rdp_pipe.keyboard_debug.write_keyboard_debug(
+            "keyboard focusOut reason={reason}".format(
+                reason=focus_out_event.reason()))
+
+        super().focusOutEvent(focus_out_event)
+
     def mousePressEvent(self, mouse_event: PyQt6.QtGui.QMouseEvent):
         """Forward mouse press to the RDP session."""
+
+        self._prepare_canvas_for_keyboard_input(True)
 
         self._enqueue_mouse_event(
             mouse_event,
@@ -1151,6 +1208,8 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
     def mouseMoveEvent(self, mouse_event: PyQt6.QtGui.QMouseEvent):
         """Forward mouse movement while tracking is enabled."""
 
+        self._prepare_canvas_for_keyboard_input(False)
+
         pointer_position = self._widget_position_from_point(mouse_event.position())
         self._last_pointer_widget_position = pointer_position
         self._cursor_overlay.set_pointer_position(pointer_position)
@@ -1200,11 +1259,21 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
     def keyPressEvent(self, key_event: PyQt6.QtGui.QKeyEvent):
         """Forward key press when the pointer is inside the canvas."""
 
+        rdp_pipe.keyboard_debug.write_keyboard_debug(
+            "keyboard keyPressEvent key={key} native_scancode={native_scancode}".format(
+                key=key_event.key(),
+                native_scancode=key_event.nativeScanCode()))
+
         self._enqueue_keyboard_event(key_event, True)
         super().keyPressEvent(key_event)
 
     def keyReleaseEvent(self, key_event: PyQt6.QtGui.QKeyEvent):
         """Forward key release when the pointer is inside the canvas."""
+
+        rdp_pipe.keyboard_debug.write_keyboard_debug(
+            "keyboard keyReleaseEvent key={key} native_scancode={native_scancode}".format(
+                key=key_event.key(),
+                native_scancode=key_event.nativeScanCode()))
 
         self._enqueue_keyboard_event(key_event, False)
         super().keyReleaseEvent(key_event)
@@ -1563,6 +1632,14 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
         if qthread_finished is False:
             _LOGGER.warning("RDP Qt worker thread did not exit after quit()")
+
+    def changeEvent(self, change_event: PyQt6.QtCore.QEvent):
+        """Refocus the canvas when the session window is reactivated."""
+
+        if change_event.type() == PyQt6.QtCore.QEvent.Type.WindowActivate:
+            self._canvas.refocus_keyboard_input_if_pointer_over_canvas()
+
+        super().changeEvent(change_event)
 
     def closeEvent(self, close_event: PyQt6.QtGui.QCloseEvent):
         """Shut down input forwarding and wait for the RDP session to disconnect."""

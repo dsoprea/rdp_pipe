@@ -2,6 +2,48 @@
 
 Postmortems for unintuitive defects caused by wire formats, library behavior, or platform defaults — so we do not re-learn them.
 
+## Keyboard stops after idle while mouse still works
+
+### Symptom
+
+After leaving an RDP session connected but idle for several minutes (~10 minutes in the field), the remote mouse still moves and clicks normally but keyboard input no longer reaches the remote desktop. Re-entering the canvas or clicking once does not always restore keys. The framebuffer still looks live (not a frozen lock-screen image).
+
+### Root cause
+
+Two independent layers can produce the same symptom:
+
+| Layer | Mechanism |
+|-------|-----------|
+| **Qt capture** | Keyboard is pointer-gated (`_pointer_inside_canvas`) and requires the canvas widget to have Qt focus. Mouse is not gated and does not need focus. After idle, the compositor, IME, or another widget can steal focus; a spurious `leaveEvent` can clear `_pointer_inside_canvas` while `mouseMoveEvent` still fires. `mousePressEvent` intentionally skips `super()` (double-click sequencing fix), so clicks did not reclaim focus. |
+| **RDP reactivation** | Mid-session `Demand Active` (deactivation–reactivation) can leave stale modifier key state on the server. Video and fast-path mouse keep working while keyboard input is ignored until modifiers are released or the session fully reconnects. |
+
+There is no client-side idle timer; the timing correlates with OS idle behavior or server session policy.
+
+### Why it was tricky
+
+- Mouse and keyboard share the same `input_queue` and `_input_forwarder`, so a dead forwarder was ruled out when mouse still worked.
+- `enterEvent` alone was insufficient when focus was stolen without a real pointer leave.
+- Half-finished reactivation can leave the session looking healthy (video updates) while input state is wrong — same class of bug as RDPDISP layout applies only once.
+
+### Fix
+
+1. **Qt** — `_prepare_canvas_for_keyboard_input`: repair `_pointer_inside_canvas` on mouse move; refocus on mouse press, `enterEvent`, and `RdpSessionWindow.changeEvent(WindowActivate)` when the pointer is over the canvas (`refocus_keyboard_input_if_pointer_over_canvas`).
+2. **Diagnostics** — `RDP_KEYBOARD_DEBUG=1` traces `keyPressEvent`, enqueue drops, and forwarder dequeue; compare with `rdpr send_key` to separate Qt vs wire layers.
+3. **RDP** — After successful `_complete_deactivation_reactivation`, `_release_keyboard_modifiers_after_reactivation` sends release scancodes for shift/control/alt; reactivation failures also print to stderr (not only `_LOGGER`).
+
+### Prevention
+
+- Run `RDP_KEYBOARD_DEBUG=1 rdp …` when reproducing idle loss; note whether `keyPressEvent` lines appear.
+- Run `rdpr send_key --text hello` in the same idle state via `--pipe`.
+- Unit tests: `tests/test_qt_session_keyboard.py` (pointer repair, press focus, refocus helper).
+- Watch stderr for `error: RDP deactivation-reactivation failed`.
+
+### References
+
+- [`src/rdp_pipe/qt_session_window.py`](src/rdp_pipe/qt_session_window.py) — pointer gating, focus recovery
+- [`src/rdp_pipe/keyboard_debug.py`](src/rdp_pipe/keyboard_debug.py) — `RDP_KEYBOARD_DEBUG`
+- [`src/rdp_pipe/rdp_connection.py`](src/rdp_pipe/rdp_connection.py) — reactivation keyboard reset
+
 ## RDPECLIP format-data request crashes on empty local clipboard
 
 ### Symptom

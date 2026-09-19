@@ -253,6 +253,7 @@ async def _run_complete_deactivation_reactivation_with_caps_already_received():
     connection._finish_mandatory_capability_exchange_after_synchronize = \
         unittest.mock.AsyncMock()
     connection.open_display_control_channel = unittest.mock.AsyncMock()
+    connection._release_keyboard_modifiers_after_reactivation = unittest.mock.AsyncMock()
     connection.display_control_channel = unittest.mock.Mock()
     connection.display_control_channel.caps_received = True
     connection.display_control_channel.wait_for_caps = unittest.mock.AsyncMock()
@@ -281,5 +282,6 @@ def test_complete_deactivation_reactivation_confirms_active_and_reopens_display_
     connection._await_synchronize_after_confirm_active.assert_awaited_once_with(0)
     connection._finish_mandatory_capability_exchange_after_synchronize.assert_awaited_once()
     connection.open_display_control_channel.assert_awaited_once()
+    connection._release_keyboard_modifiers_after_reactivation.assert_awaited_once()
     connection.display_control_channel.wait_for_caps.assert_not_awaited()
 
