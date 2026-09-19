@@ -28,8 +28,10 @@ There is no client-side idle timer; the timing correlates with OS idle behavior 
 ### Fix
 
 1. **Qt** — `_prepare_canvas_for_keyboard_input`: repair `_pointer_inside_canvas` on mouse move; refocus on mouse press, `enterEvent`, and `RdpSessionWindow.changeEvent(WindowActivate)` when the pointer is over the canvas (`refocus_keyboard_input_if_pointer_over_canvas`).
-2. **Diagnostics** — `RDP_KEYBOARD_DEBUG=1` traces `keyPressEvent`, enqueue drops, and forwarder dequeue; compare with `rdpr send_key` to separate Qt vs wire layers.
-3. **RDP** — After successful `_complete_deactivation_reactivation`, `_release_keyboard_modifiers_after_reactivation` sends release scancodes for shift/control/alt; reactivation failures also print to stderr (not only `_LOGGER`).
+2. **Key releases** — Pointer-inside gating applies to **presses only**. Releases always forward so a spurious `leaveEvent` during idle cannot drop Tab/Shift/Control **release** while the server still believes the key is down (`keyboard drop: pointer_outside` on `keyReleaseEvent` in `RDP_KEYBOARD_DEBUG=1` output).
+3. **Modifier flush** — `leaveEvent` and `focusOutEvent` enqueue release scancodes for shift/control/alt (`COMMON_MODIFIER_RDP_SCANCODE_LIST`) to clear stale remote modifier state after focus churn.
+4. **Diagnostics** — `RDP_KEYBOARD_DEBUG=1` traces `keyPressEvent`, enqueue drops, and forwarder dequeue. If presses show `enqueued` and `forwarder dequeued` but the remote still ignores input, check for an earlier dropped **release** or run `rdpr send_key` to test the wire path.
+5. **RDP** — After successful `_complete_deactivation_reactivation`, `_release_keyboard_modifiers_after_reactivation` sends release scancodes for shift/control/alt; reactivation failures also print to stderr (not only `_LOGGER`).
 
 ### Prevention
 

@@ -64,7 +64,7 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 - Mouse move, press, release, double-click, and wheel forwarded while the cursor is over the canvas (no mouse grab); suppressed when `--viewer` is set
 - `RDP_MOUSE_DEBUG=1`: stderr trace of Qt mouse/context-menu events and mapped RDP button state (for diagnosing click issues)
 - Remote cursor shapes mirrored from the server (resize, I-beam, hand, etc.) via RDP pointer updates
-- Keyboard forwarded only while the pointer is inside the canvas; suppressed when `--viewer` is set; focus is reclaimed on canvas click, mouse move over the canvas, and session window activation when the pointer is over the canvas
+- Keyboard presses forwarded only while the pointer is inside the canvas; key releases always forward so the server cannot keep a stuck key; shift/control/alt releases are flushed on canvas leave and focus loss; suppressed when `--viewer` is set; focus is reclaimed on canvas click, mouse move over the canvas, and session window activation when the pointer is over the canvas
 - `RDP_KEYBOARD_DEBUG=1`: stderr trace of Qt key events, pointer-inside gating, enqueue, and input-forwarder dequeue (for diagnosing idle keyboard loss)
 - Partial framebuffer updates from aardwolf `RDP_VIDEO` rectangles
 - Remote desktop wallpaper when the server provides it (client does not request `DISABLE_WALLPAPER` at connect)

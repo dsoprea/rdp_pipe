@@ -90,6 +90,16 @@ def _build_key_press_event() -> PyQt6.QtGui.QKeyEvent:
         "a")
 
 
+def _build_key_release_event() -> PyQt6.QtGui.QKeyEvent:
+    """Build a key release event for direct handler invocation."""
+
+    return PyQt6.QtGui.QKeyEvent(
+        PyQt6.QtCore.QEvent.Type.KeyRelease,
+        PyQt6.QtCore.Qt.Key.Key_A,
+        PyQt6.QtCore.Qt.KeyboardModifier.NoModifier,
+        "a")
+
+
 def test_mouse_move_after_leave_restores_keyboard_forwarding(qt_application):
     """Mouse move repairs pointer-inside state cleared by a spurious leaveEvent."""
 
@@ -108,11 +118,11 @@ def test_mouse_move_after_leave_restores_keyboard_forwarding(qt_application):
     canvas.keyPressEvent(_build_key_press_event())
 
     messages = _drain_keyboard_messages(input_queue)
+    press_messages = [message for message in messages if message.is_pressed]
 
     assert canvas._pointer_inside_canvas is True
-    assert len(messages) == 1
-    assert isinstance(messages[0], aardwolf.commons.queuedata.keyboard.RDP_KEYBOARD_SCANCODE)
-    assert messages[0].is_pressed is True
+    assert len(press_messages) == 1
+    assert press_messages[0].is_pressed is True
 
 
 def test_mouse_press_focuses_canvas_for_keyboard(qt_application):
@@ -160,6 +170,42 @@ def test_refocus_keyboard_input_when_pointer_over_canvas(qt_application):
 
     set_focus_mock.assert_called_once_with(PyQt6.QtCore.Qt.FocusReason.MouseFocusReason)
     assert canvas._pointer_inside_canvas is True
+
+
+def test_key_release_forwarded_when_pointer_outside_canvas(qt_application):
+    """Key releases must reach the server even when pointer-inside was cleared."""
+
+    input_queue = queue.Queue()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
+    canvas.set_input_queue(input_queue)
+    _configure_canvas_for_keyboard_tests(canvas)
+
+    canvas._pointer_inside_canvas = False
+    canvas.keyReleaseEvent(_build_key_release_event())
+
+    messages = _drain_keyboard_messages(input_queue)
+
+    assert len(messages) == 1
+    assert messages[0].is_pressed is False
+
+
+def test_leave_event_releases_common_remote_modifier_keys(qt_application):
+    """Leaving the canvas flushes shift/control/alt release scancodes to the server."""
+
+    input_queue = queue.Queue()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
+    canvas.set_input_queue(input_queue)
+    _configure_canvas_for_keyboard_tests(canvas)
+
+    leave_event = PyQt6.QtCore.QEvent(PyQt6.QtCore.QEvent.Type.Leave)
+    canvas.leaveEvent(leave_event)
+
+    messages = _drain_keyboard_messages(input_queue)
+
+    assert len(messages) == len(rdp_pipe.qt_session_window.COMMON_MODIFIER_RDP_SCANCODE_LIST)
+    assert all(message.is_pressed is False for message in messages)
+    assert [message.keyCode for message in messages] == \
+        list(rdp_pipe.qt_session_window.COMMON_MODIFIER_RDP_SCANCODE_LIST)
 
 
 def test_keyboard_debug_does_not_crash_on_key_press(qt_application, monkeypatch):

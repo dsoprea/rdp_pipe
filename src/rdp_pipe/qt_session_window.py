@@ -39,6 +39,7 @@ WORKER_THREAD_SHUTDOWN_WAIT_MILLISECONDS = 2000
 RESIZE_DEBOUNCE_MILLISECONDS = 250
 MOUSE_POINTER_DEBUG_INTERVAL_SECONDS = 0.5
 DEFAULT_SUPPRESS_SECONDS_AFTER_BITMAP = 0.1
+COMMON_MODIFIER_RDP_SCANCODE_LIST = (42, 54, 29, 56)
 
 
 class RdpConnectingStepRow(PyQt6.QtWidgets.QWidget):
@@ -878,15 +879,57 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         if self._pointer_inside_canvas:
             self._prepare_canvas_for_keyboard_input(True)
 
+    def _enqueue_keyboard_scancode(
+            self,
+            scancode: int,
+            is_pressed: bool,
+            modifiers: aardwolf.keyboard.VK_MODIFIERS,
+            vk_code: str | None):
+
+        """Put one keyboard scancode message on the input queue."""
+
+        keyboard_message = aardwolf.commons.queuedata.keyboard.RDP_KEYBOARD_SCANCODE()
+        keyboard_message.keyCode = scancode
+        keyboard_message.is_pressed = is_pressed
+        keyboard_message.modifiers = modifiers
+        keyboard_message.vk_code = vk_code
+
+        self._input_queue.put(keyboard_message)
+
+        rdp_pipe.keyboard_debug.write_keyboard_debug(
+            "keyboard enqueued scancode={scancode} pressed={is_pressed} modifiers={modifiers} vk_code={vk_code}".format(
+                scancode=keyboard_message.keyCode,
+                is_pressed=is_pressed,
+                modifiers=modifiers,
+                vk_code=keyboard_message.vk_code))
+
+    def _release_common_remote_modifier_keys(self):
+        """Release shift/control/alt on the server when local pointer or focus leaves."""
+
+        if self._viewer_mode:
+            return
+
+        if self._input_queue is None:
+            return
+
+        modifiers = aardwolf.keyboard.VK_MODIFIERS(0)
+
+        for modifier_scancode in COMMON_MODIFIER_RDP_SCANCODE_LIST:
+            self._enqueue_keyboard_scancode(
+                modifier_scancode,
+                False,
+                modifiers,
+                None)
+
     def _enqueue_keyboard_event(self, key_event: PyQt6.QtGui.QKeyEvent, is_pressed: bool):
-        """Forward scancode keyboard events when the pointer is inside the canvas."""
+        """Forward scancode keyboard events; gate presses on pointer-inside only."""
 
         if self._viewer_mode:
             rdp_pipe.keyboard_debug.write_keyboard_debug("keyboard drop: viewer_mode")
 
             return
 
-        if self._pointer_inside_canvas is False:
+        if self._pointer_inside_canvas is False and is_pressed:
             rdp_pipe.keyboard_debug.write_keyboard_debug("keyboard drop: pointer_outside")
 
             return
@@ -911,26 +954,21 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
                 and key_event.key() != PyQt6.QtCore.Qt.Key.Key_Alt:
             modifiers = modifiers | aardwolf.keyboard.VK_MODIFIERS.VK_MENU
 
-        keyboard_message = aardwolf.commons.queuedata.keyboard.RDP_KEYBOARD_SCANCODE()
-        keyboard_message.keyCode = key_event.nativeScanCode()
-        keyboard_message.is_pressed = is_pressed
+        scancode = key_event.nativeScanCode()
 
         if sys.platform == "linux":
-            keyboard_message.keyCode = keyboard_message.keyCode - 8
+            scancode = scancode - 8
 
-        keyboard_message.modifiers = modifiers
+        vk_code = None
 
         if key_event.key() in self._extended_key_map.keys():
-            keyboard_message.vk_code = self._extended_key_map[key_event.key()]
+            vk_code = self._extended_key_map[key_event.key()]
 
-        self._input_queue.put(keyboard_message)
-
-        rdp_pipe.keyboard_debug.write_keyboard_debug(
-            "keyboard enqueued scancode={scancode} pressed={is_pressed} modifiers={modifiers} vk_code={vk_code}".format(
-                scancode=keyboard_message.keyCode,
-                is_pressed=is_pressed,
-                modifiers=modifiers,
-                vk_code=keyboard_message.vk_code))
+        self._enqueue_keyboard_scancode(
+            scancode,
+            is_pressed,
+            modifiers,
+            vk_code)
 
     def _restore_visible_local_cursor_for_window_chrome(self):
         """Restore a visible arrow on ancestors the WM title bar may inherit."""
@@ -961,8 +999,9 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         super().enterEvent(enter_event)
 
     def leaveEvent(self, leave_event: PyQt6.QtCore.QEvent):
-        """Stop forwarding keyboard events when the pointer leaves."""
+        """Stop forwarding keyboard presses when the pointer leaves."""
 
+        self._release_common_remote_modifier_keys()
         self._pointer_inside_canvas = False
         self._last_pointer_widget_position = None
         self._restore_visible_local_cursor_for_window_chrome()
@@ -1114,12 +1153,13 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         super().focusInEvent(focus_in_event)
 
     def focusOutEvent(self, focus_out_event: PyQt6.QtGui.QFocusEvent):
-        """Log canvas focus loss when keyboard debug tracing is enabled."""
+        """Release remote modifiers and log focus loss when debug tracing is enabled."""
 
         rdp_pipe.keyboard_debug.write_keyboard_debug(
             "keyboard focusOut reason={reason}".format(
                 reason=focus_out_event.reason()))
 
+        self._release_common_remote_modifier_keys()
         super().focusOutEvent(focus_out_event)
 
     def mousePressEvent(self, mouse_event: PyQt6.QtGui.QMouseEvent):
