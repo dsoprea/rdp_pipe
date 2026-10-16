@@ -33,3 +33,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+pythonpath = ["src"]
+
+[tool.pyright]
+include = ["src", "tests", "mcp"]
+extraPaths = ["src"]
+pythonVersion = "3.14"
+typeCheckingMode = "basic"

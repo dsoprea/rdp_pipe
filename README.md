@@ -10,13 +10,17 @@ Python desktop RDP client for Linux operators connecting to remote hosts over RD
 
 ## Install
 
-From the repo root with pyenv active:
+From the repo root with pyenv active for **`.python-version`**:
 
 ```bash
-pip install -e ".[dev]"
+pip install -e .
 ```
 
-This project does not use virtualenv. Console scripts (`rdp`, `rdpr`) land on your pyenv shim path after editable install.
+Optional wrapper: **`./script/install.sh`** (runs the same command).
+
+This project does not use a repo **`.venv`**. Console scripts (`rdp`, `rdpr`) land on your pyenv shim path after editable install.
+
+If imports fail after moving the repo, remove any leftover **`.venv`** directory (it may still point at an old checkout path) and run **`pip install -e .`** again. The installable Python package is **`rdp_pipe`**, not `rdp`.
 
 ## Connect
 
@@ -201,9 +205,11 @@ When adding or changing a runtime monkey-patch, update this section in the same 
 ## Test
 
 ```bash
-pip install -e ".[dev,mcp]"
+pip install -e ".[dev]"
 python -m pytest -q
 ```
+
+MCP server tests need the **`mcp`** extra: `pip install -e ".[dev,mcp]"`.
 
 Offline unit tests cover URL/password handling, RDPDISP PDU encoding, pointer mask decoding, command socket protocol, and CLI validation.
 
