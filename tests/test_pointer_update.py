@@ -413,3 +413,30 @@ def test_build_bitmap_pointer_update_from_color_attribute_round_trip():
     assert pointer_update.hotspot_y == 0
     assert pointer_update.image.size == (1, 1)
     assert pointer_cache.lookup_bitmap(3) is pointer_update
+
+
+def test_rdp_desktop_process_fastpath_accepts_fp_output_updates_list():
+    """Newer aardwolf supplies fpOutputUpdates as a list of raw TS_FP_UPDATE rows."""
+
+    connection = unittest.mock.Mock()
+    connection._pointer_pdu_count_by_update_code = {}
+    connection.bulk_decompressor = None
+    connection.ext_out_queue = asyncio.Queue()
+    connection._RDPConnection__fastpath_reassembler = unittest.mock.Mock()
+    connection._RDPConnection__fastpath_reassembler.feed.return_value = None
+
+    raw_update = unittest.mock.Mock()
+    raw_update.compression = \
+        aardwolf.protocol.fastpath.FASTPATH_OUTPUT_COMPRESSION.NONE
+    raw_update.compressionFlags = 0
+
+    fpdu = unittest.mock.Mock()
+    fpdu.fpOutputUpdates = [raw_update]
+
+    asyncio.run(
+        rdp_pipe.rdp_connection._rdp_desktop_process_fastpath(
+            connection,
+            fpdu))
+
+    connection._RDPConnection__fastpath_reassembler.feed.assert_called_once_with(
+        raw_update)

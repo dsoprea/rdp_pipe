@@ -1178,56 +1178,106 @@ async def _process_pointer_fastpath_update(
     return None
 
 
+async def _process_parsed_fastpath_output_update(
+        connection: RdpDesktopConnection,
+        update) -> None:
+    """Handle one reassembled fast-path output update (bitmap tiles or pointer PDU)."""
+
+    if update.updateCode == aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.BITMAP:
+
+        for bitmapdata in update.update.rectangles:
+            connection.desktop_buffer_has_data = True
+
+            video_rectangle, image = \
+                aardwolf.commons.queuedata.video.RDP_VIDEO.from_bitmapdata(
+                    bitmapdata,
+                    connection.iosettings.video_out_format)
+
+            connection._RDPConnection__desktop_buffer.paste(
+                image,
+                [
+                    video_rectangle.x,
+                    video_rectangle.y,
+                    video_rectangle.x + video_rectangle.width,
+                    video_rectangle.y + video_rectangle.height,
+                ])
+
+            await connection.ext_out_queue.put(video_rectangle)
+
+        return
+
+    update_code = int(update.updateCode)
+    pointer_pdu_count = connection._pointer_pdu_count_by_update_code.get(update_code, 0)
+    connection._pointer_pdu_count_by_update_code[update_code] = pointer_pdu_count + 1
+
+    pointer_update = await _process_pointer_fastpath_update(connection, update)
+
+    if pointer_update is None:
+        return
+
+    debug_detail = "kind={kind}".format(kind=pointer_update.kind.value)
+
+    if pointer_update.kind == rdp_pipe.pointer_update.RdpPointerUpdateKind.BITMAP:
+        debug_detail = (
+            "kind=bitmap xor_bpp={xor_bpp} cache_index={cache_index} size={width}x{height}".format(
+                xor_bpp=pointer_update.xor_bits_per_pixel,
+                cache_index=pointer_update.cache_index,
+                width=pointer_update.image.width if pointer_update.image is not None else 0,
+                height=pointer_update.image.height if pointer_update.image is not None else 0))
+
+    rdp_pipe.pointer_debug.write_pointer_debug(
+        "pointer pdu: {update_code} {debug_detail}".format(
+            update_code=update.updateCode,
+            debug_detail=debug_detail))
+
+    await connection.ext_out_queue.put(pointer_update)
+
+
 async def _rdp_desktop_process_fastpath(self, fpdu):
     """Forward fastpath bitmap and pointer updates to the output queue."""
 
     try:
-        if fpdu.fpOutputUpdates.updateCode == \
-                aardwolf.protocol.fastpath.FASTPATH_UPDATETYPE.BITMAP:
+        fp_output_updates = fpdu.fpOutputUpdates
 
-            for bitmapdata in fpdu.fpOutputUpdates.update.rectangles:
-                self.desktop_buffer_has_data = True
-
-                video_rectangle, image = \
-                    aardwolf.commons.queuedata.video.RDP_VIDEO.from_bitmapdata(
-                        bitmapdata,
-                        self.iosettings.video_out_format)
-
-                self._RDPConnection__desktop_buffer.paste(
-                    image,
-                    [
-                        video_rectangle.x,
-                        video_rectangle.y,
-                        video_rectangle.x + video_rectangle.width,
-                        video_rectangle.y + video_rectangle.height,
-                    ])
-
-                await self.ext_out_queue.put(video_rectangle)
-
+        if isinstance(fp_output_updates, list):
+            raw_updates = fp_output_updates
         else:
-            update_code = int(fpdu.fpOutputUpdates.updateCode)
-            pointer_pdu_count = self._pointer_pdu_count_by_update_code.get(update_code, 0)
-            self._pointer_pdu_count_by_update_code[update_code] = pointer_pdu_count + 1
+            raw_updates = [fp_output_updates]
 
-            pointer_update = await _process_pointer_fastpath_update(self, fpdu.fpOutputUpdates)
+        fastpath_reassembler = self._RDPConnection__fastpath_reassembler
 
-            if pointer_update is not None:
-                debug_detail = "kind={kind}".format(kind=pointer_update.kind.value)
+        for raw_update in raw_updates:
+            if raw_update.compression == \
+                    aardwolf.protocol.fastpath.FASTPATH_OUTPUT_COMPRESSION.USED:
 
-                if pointer_update.kind == rdp_pipe.pointer_update.RdpPointerUpdateKind.BITMAP:
-                    debug_detail = (
-                        "kind=bitmap xor_bpp={xor_bpp} cache_index={cache_index} size={width}x{height}".format(
-                            xor_bpp=pointer_update.xor_bits_per_pixel,
-                            cache_index=pointer_update.cache_index,
-                            width=pointer_update.image.width if pointer_update.image is not None else 0,
-                            height=pointer_update.image.height if pointer_update.image is not None else 0))
+                if self.bulk_decompressor is None:
+                    raise aardwolf.protocol.compression.BulkCompressionError(
+                        "Server sent compressed fast-path data without negotiation")
 
+                raw_update.updateData = self.bulk_decompressor.decompress(
+                    raw_update.updateData,
+                    raw_update.compressionFlags)
+                raw_update.size = len(raw_update.updateData)
+                raw_update.compression = \
+                    aardwolf.protocol.fastpath.FASTPATH_OUTPUT_COMPRESSION.NONE
+                raw_update.compressionFlags = 0
+
+            update = fastpath_reassembler.feed(raw_update)
+
+            if update is None:
+                continue
+
+            try:
+                update.parse_update_data()
+            except Exception as parse_error:
+                _LOGGER.error(
+                    "fastpath update parse failed: {error}".format(error=parse_error))
                 rdp_pipe.pointer_debug.write_pointer_debug(
-                    "pointer pdu: {update_code} {debug_detail}".format(
-                        update_code=fpdu.fpOutputUpdates.updateCode,
-                        debug_detail=debug_detail))
+                    "pointer pdu: fastpath parse error {error}".format(error=parse_error))
 
-                await self.ext_out_queue.put(pointer_update)
+                continue
+
+            await _process_parsed_fastpath_output_update(self, update)
 
     except Exception as error:
         _LOGGER.error(

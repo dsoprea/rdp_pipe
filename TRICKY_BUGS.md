@@ -2,6 +2,26 @@
 
 Postmortems for unintuitive defects caused by wire formats, library behavior, or platform defaults — so we do not re-learn them.
 
+## Blank viewport — fastpath `list` has no `updateCode`
+
+### Symptom
+
+The Qt session window stays black or empty while connected. The terminal repeats:
+
+`fastpath processing failed: 'list' object has no attribute 'updateCode'`
+
+### Root cause
+
+Upstream **aardwolf** changed fast-path decoding: `fpdu.fpOutputUpdates` is now a **list** of raw `TS_FP_UPDATE` fragments from `TS_FP_UPDATE.list_from_bytes`, reassembled with `FastPathFragmentReassembler.feed` before `parse_update_data()`. Our monkey-patched `_rdp_desktop_process_fastpath` still treated `fpOutputUpdates` as a single parsed update and read `.updateCode` on the list, so every bitmap tile failed and nothing reached `ext_out_queue`.
+
+### Fix
+
+Mirror aardwolf’s loop: iterate `fpOutputUpdates`, optional bulk decompress, reassembler feed, `parse_update_data()`, then handle bitmap and pointer updates per parsed row (`_process_parsed_fastpath_output_update` in `rdp_connection.py`).
+
+### Prevention
+
+When upgrading **aardwolf**, diff `RDPConnection.__process_fastpath` in site-packages against our patch. Regression test: `test_rdp_desktop_process_fastpath_accepts_fp_output_updates_list` in `tests/test_pointer_update.py`.
+
 ## Keyboard stops after idle while mouse still works
 
 ### Symptom
