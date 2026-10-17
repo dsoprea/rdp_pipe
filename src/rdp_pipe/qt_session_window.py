@@ -38,12 +38,220 @@ DEFAULT_WINDOW_WIDTH = 1280
 DEFAULT_WINDOW_HEIGHT = 800
 SESSION_TITLE_BAR_HEIGHT = 36
 SESSION_TITLE_BAR_BACKGROUND = "#2b2b2b"
+FRAMELESS_RESIZE_MARGIN_PIXELS = 12
+FRAMELESS_MINIMUM_WINDOW_WIDTH = 320
+FRAMELESS_MINIMUM_WINDOW_HEIGHT = 240
 SESSION_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 WORKER_THREAD_SHUTDOWN_WAIT_MILLISECONDS = 2000
 RESIZE_DEBOUNCE_MILLISECONDS = 250
 MOUSE_POINTER_DEBUG_INTERVAL_SECONDS = 0.5
 DEFAULT_SUPPRESS_SECONDS_AFTER_BITMAP = 0.1
 COMMON_MODIFIER_RDP_SCANCODE_LIST = (42, 54, 29, 56)
+
+
+def resolve_frameless_resize_edge(
+        session_window: PyQt6.QtWidgets.QWidget,
+        window_local_position: PyQt6.QtCore.QPoint) -> PyQt6.QtCore.Qt.Edge | None:
+    """Return compositor resize edges when a press is in the frameless grip band."""
+
+    window_width = session_window.width()
+    window_height = session_window.height()
+    margin = FRAMELESS_RESIZE_MARGIN_PIXELS
+    position_x = window_local_position.x()
+    position_y = window_local_position.y()
+
+    on_left = position_x <= margin
+    on_right = position_x >= window_width - margin
+    on_top = position_y <= margin
+    on_bottom = position_y >= window_height - margin
+
+    if on_left is False and on_right is False and on_top is False and on_bottom is False:
+        return None
+
+    resize_edge = PyQt6.QtCore.Qt.Edge(0)
+
+    if on_top:
+        resize_edge = resize_edge | PyQt6.QtCore.Qt.Edge.TopEdge
+
+    if on_bottom:
+        resize_edge = resize_edge | PyQt6.QtCore.Qt.Edge.BottomEdge
+
+    if on_left:
+        resize_edge = resize_edge | PyQt6.QtCore.Qt.Edge.LeftEdge
+
+    if on_right:
+        resize_edge = resize_edge | PyQt6.QtCore.Qt.Edge.RightEdge
+
+    return resize_edge
+
+
+def compute_session_window_outer_height_for_client_area(
+        client_area_height: int,
+        frameless_title_bar_active: bool) -> int:
+    """Return total window height so the canvas client area matches client_area_height."""
+
+    if frameless_title_bar_active:
+        return client_area_height + SESSION_TITLE_BAR_HEIGHT
+
+    return client_area_height
+
+
+def compute_frameless_resized_frame_geometry(
+        start_frame_geometry: PyQt6.QtCore.QRect,
+        resize_edge: PyQt6.QtCore.Qt.Edge,
+        global_delta: PyQt6.QtCore.QPoint,
+        minimum_width: int,
+        minimum_height: int) -> PyQt6.QtCore.QRect:
+    """Apply a manual frameless resize drag to a copy of start_frame_geometry."""
+
+    resized_geometry = PyQt6.QtCore.QRect(start_frame_geometry)
+
+    if resize_edge & PyQt6.QtCore.Qt.Edge.TopEdge:
+        resized_geometry.setTop(start_frame_geometry.top() + global_delta.y())
+
+    if resize_edge & PyQt6.QtCore.Qt.Edge.BottomEdge:
+        resized_geometry.setBottom(start_frame_geometry.bottom() + global_delta.y())
+
+    if resize_edge & PyQt6.QtCore.Qt.Edge.LeftEdge:
+        resized_geometry.setLeft(start_frame_geometry.left() + global_delta.x())
+
+    if resize_edge & PyQt6.QtCore.Qt.Edge.RightEdge:
+        resized_geometry.setRight(start_frame_geometry.right() + global_delta.x())
+
+    if resized_geometry.width() < minimum_width:
+        if resize_edge & PyQt6.QtCore.Qt.Edge.LeftEdge:
+            resized_geometry.setLeft(resized_geometry.right() - minimum_width + 1)
+        else:
+            resized_geometry.setRight(resized_geometry.left() + minimum_width - 1)
+
+    if resized_geometry.height() < minimum_height:
+        if resize_edge & PyQt6.QtCore.Qt.Edge.TopEdge:
+            resized_geometry.setTop(resized_geometry.bottom() - minimum_height + 1)
+        else:
+            resized_geometry.setBottom(resized_geometry.top() + minimum_height - 1)
+
+    return resized_geometry
+
+
+def compute_frameless_resize_grip_geometry(
+        resize_edge: PyQt6.QtCore.Qt.Edge,
+        window_width: int,
+        window_height: int,
+        margin_pixels: int) -> PyQt6.QtCore.QRect:
+    """Return the grip widget rectangle for one frameless resize edge or corner."""
+
+    grip_rectangle = PyQt6.QtCore.QRect(0, 0, 0, 0)
+
+    if resize_edge & PyQt6.QtCore.Qt.Edge.TopEdge:
+        grip_rectangle.setTop(0)
+        grip_rectangle.setHeight(margin_pixels)
+
+    if resize_edge & PyQt6.QtCore.Qt.Edge.BottomEdge:
+        grip_rectangle.setTop(window_height - margin_pixels)
+        grip_rectangle.setHeight(margin_pixels)
+
+    if resize_edge & PyQt6.QtCore.Qt.Edge.LeftEdge:
+        grip_rectangle.setLeft(0)
+        grip_rectangle.setWidth(margin_pixels)
+
+    if resize_edge & PyQt6.QtCore.Qt.Edge.RightEdge:
+        grip_rectangle.setLeft(window_width - margin_pixels)
+        grip_rectangle.setWidth(margin_pixels)
+
+    if resize_edge == PyQt6.QtCore.Qt.Edge.TopEdge:
+        grip_rectangle.setLeft(margin_pixels)
+        grip_rectangle.setWidth(window_width - (2 * margin_pixels))
+
+    if resize_edge == PyQt6.QtCore.Qt.Edge.BottomEdge:
+        grip_rectangle.setLeft(margin_pixels)
+        grip_rectangle.setWidth(window_width - (2 * margin_pixels))
+
+    if resize_edge == PyQt6.QtCore.Qt.Edge.LeftEdge:
+        grip_rectangle.setTop(margin_pixels)
+        grip_rectangle.setHeight(window_height - (2 * margin_pixels))
+
+    if resize_edge == PyQt6.QtCore.Qt.Edge.RightEdge:
+        grip_rectangle.setTop(margin_pixels)
+        grip_rectangle.setHeight(window_height - (2 * margin_pixels))
+
+    return grip_rectangle
+
+
+def resolve_frameless_resize_cursor_shape(
+        resize_edge: PyQt6.QtCore.Qt.Edge) -> PyQt6.QtCore.Qt.CursorShape:
+    """Map a frameless resize edge mask to the matching Qt resize cursor."""
+
+    if resize_edge == (
+            PyQt6.QtCore.Qt.Edge.TopEdge | PyQt6.QtCore.Qt.Edge.LeftEdge):
+        return PyQt6.QtCore.Qt.CursorShape.SizeFDiagCursor
+
+    if resize_edge == (
+            PyQt6.QtCore.Qt.Edge.TopEdge | PyQt6.QtCore.Qt.Edge.RightEdge):
+        return PyQt6.QtCore.Qt.CursorShape.SizeBDiagCursor
+
+    if resize_edge == (
+            PyQt6.QtCore.Qt.Edge.BottomEdge | PyQt6.QtCore.Qt.Edge.LeftEdge):
+        return PyQt6.QtCore.Qt.CursorShape.SizeBDiagCursor
+
+    if resize_edge == (
+            PyQt6.QtCore.Qt.Edge.BottomEdge | PyQt6.QtCore.Qt.Edge.RightEdge):
+        return PyQt6.QtCore.Qt.CursorShape.SizeFDiagCursor
+
+    if resize_edge & PyQt6.QtCore.Qt.Edge.TopEdge:
+        return PyQt6.QtCore.Qt.CursorShape.SizeVerCursor
+
+    if resize_edge & PyQt6.QtCore.Qt.Edge.BottomEdge:
+        return PyQt6.QtCore.Qt.CursorShape.SizeVerCursor
+
+    if resize_edge & PyQt6.QtCore.Qt.Edge.LeftEdge:
+        return PyQt6.QtCore.Qt.CursorShape.SizeHorCursor
+
+    return PyQt6.QtCore.Qt.CursorShape.SizeHorCursor
+
+
+FRAMELESS_RESIZE_GRIP_EDGES = (
+    PyQt6.QtCore.Qt.Edge.TopEdge,
+    PyQt6.QtCore.Qt.Edge.BottomEdge,
+    PyQt6.QtCore.Qt.Edge.LeftEdge,
+    PyQt6.QtCore.Qt.Edge.RightEdge,
+    PyQt6.QtCore.Qt.Edge.TopEdge | PyQt6.QtCore.Qt.Edge.LeftEdge,
+    PyQt6.QtCore.Qt.Edge.TopEdge | PyQt6.QtCore.Qt.Edge.RightEdge,
+    PyQt6.QtCore.Qt.Edge.BottomEdge | PyQt6.QtCore.Qt.Edge.LeftEdge,
+    PyQt6.QtCore.Qt.Edge.BottomEdge | PyQt6.QtCore.Qt.Edge.RightEdge,
+)
+
+
+class RdpFramelessResizeGrip(PyQt6.QtWidgets.QWidget):
+    """Transparent hit target on a frameless window edge or corner."""
+
+    def __init__(
+            self,
+            session_window: "RdpSessionWindow",
+            resize_edge: PyQt6.QtCore.Qt.Edge):
+
+        """Create a grip that starts a manual resize drag on left-button press."""
+
+        super().__init__(session_window)
+
+        self._session_window = session_window
+        self._resize_edge = resize_edge
+
+        self.setAutoFillBackground(False)
+        self.setAttribute(PyQt6.QtCore.Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setCursor(resolve_frameless_resize_cursor_shape(resize_edge))
+
+    def mousePressEvent(self, mouse_event: PyQt6.QtGui.QMouseEvent):
+        """Begin resizing the session window from this grip."""
+
+        if mouse_event.button() != PyQt6.QtCore.Qt.MouseButton.LeftButton:
+            super().mousePressEvent(mouse_event)
+
+            return
+
+        self._session_window.begin_frameless_resize_drag(
+            self._resize_edge,
+            mouse_event.globalPosition().toPoint())
+        mouse_event.accept()
 
 
 class RdpConnectingStepRow(PyQt6.QtWidgets.QWidget):
@@ -1522,6 +1730,11 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._video_width = video_width
         self._video_height = video_height
         self._session_title_bar = None
+        self._frameless_manual_resize_edge = None
+        self._frameless_manual_resize_start_global_position = None
+        self._frameless_manual_resize_start_frame_geometry = None
+        self._frameless_resize_grip_entries: list[
+            tuple[PyQt6.QtCore.Qt.Edge, RdpFramelessResizeGrip]] = []
 
         self._frame_buffer = PyQt6.QtGui.QImage(
             video_width,
@@ -1531,7 +1744,6 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self.setWindowTitle(
             rdp_pipe.connection_url.build_session_window_title(connection_url))
         self.setMinimumSize(0, 0)
-        self.resize(video_width, video_height)
 
         self._session_container = RdpSessionContainer(self)
         self._canvas = self._session_container.canvas
@@ -1543,9 +1755,13 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._canvas.set_remote_dimensions(video_width, video_height)
         self._session_container.resize_requested.connect(self._handle_canvas_resize_requested)
 
-        self.setCentralWidget(self._session_container)
-
         self._configure_session_window_title_bar_chrome()
+        self.setCentralWidget(self._build_session_central_widget())
+
+        outer_window_height = compute_session_window_outer_height_for_client_area(
+            video_height,
+            self._session_title_bar is not None)
+        self.resize(video_width, outer_window_height)
 
         self._worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
         self._worker.set_session(
@@ -1599,8 +1815,138 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             self._handle_ctrl_alt_del_title_bar_clicked)
         session_title_bar.super_key_clicked.connect(
             self._handle_super_key_title_bar_clicked)
-        self.setMenuWidget(session_title_bar)
         self._session_title_bar = session_title_bar
+        self._create_frameless_resize_grips()
+
+    def _create_frameless_resize_grips(self):
+        """Add raised edge widgets that receive resize mouse presses."""
+
+        if len(self._frameless_resize_grip_entries) > 0:
+            return
+
+        for resize_edge in FRAMELESS_RESIZE_GRIP_EDGES:
+            resize_grip = RdpFramelessResizeGrip(self, resize_edge)
+            resize_grip.show()
+            self._frameless_resize_grip_entries.append((resize_edge, resize_grip))
+
+    def _layout_frameless_resize_grips(self):
+        """Position edge grips above the central widget for hit testing."""
+
+        if len(self._frameless_resize_grip_entries) == 0:
+            return
+
+        window_width = self.width()
+        window_height = self.height()
+
+        central_widget = self.centralWidget()
+
+        if central_widget is not None:
+            central_widget.lower()
+
+        for resize_edge, resize_grip in self._frameless_resize_grip_entries:
+            grip_geometry = compute_frameless_resize_grip_geometry(
+                resize_edge,
+                window_width,
+                window_height,
+                FRAMELESS_RESIZE_MARGIN_PIXELS)
+            resize_grip.setGeometry(grip_geometry)
+            resize_grip.raise_()
+
+    def _build_session_central_widget(self) -> PyQt6.QtWidgets.QWidget:
+        """Return the central widget tree (title bar plus session canvas when frameless)."""
+
+        if self._session_title_bar is None:
+            return self._session_container
+
+        chrome_host = PyQt6.QtWidgets.QWidget(self)
+        chrome_layout = PyQt6.QtWidgets.QVBoxLayout(chrome_host)
+        chrome_layout.setContentsMargins(0, 0, 0, 0)
+        chrome_layout.setSpacing(0)
+        chrome_layout.addWidget(self._session_title_bar)
+        chrome_layout.addWidget(self._session_container, 1)
+
+        return chrome_host
+
+    def begin_frameless_resize_drag(
+            self,
+            resize_edge: PyQt6.QtCore.Qt.Edge,
+            global_position: PyQt6.QtCore.QPoint):
+        """Begin a manual edge resize drag (frameless windows; works on Wayland)."""
+
+        if self._session_title_bar is None:
+            return
+
+        if self.isMaximized():
+            return
+
+        self._frameless_manual_resize_edge = resize_edge
+        self._frameless_manual_resize_start_global_position = global_position
+        self._frameless_manual_resize_start_frame_geometry = self.frameGeometry()
+        self.grabMouse()
+
+    def _apply_frameless_manual_resize(self, mouse_event: PyQt6.QtGui.QMouseEvent):
+        """Resize the window while a frameless edge drag is active."""
+
+        if self._frameless_manual_resize_edge is None:
+            return
+
+        if self._frameless_manual_resize_start_global_position is None:
+            return
+
+        if self._frameless_manual_resize_start_frame_geometry is None:
+            return
+
+        global_position = mouse_event.globalPosition().toPoint()
+        global_delta = global_position - self._frameless_manual_resize_start_global_position
+        resized_geometry = compute_frameless_resized_frame_geometry(
+            self._frameless_manual_resize_start_frame_geometry,
+            self._frameless_manual_resize_edge,
+            global_delta,
+            FRAMELESS_MINIMUM_WINDOW_WIDTH,
+            FRAMELESS_MINIMUM_WINDOW_HEIGHT)
+        self.setGeometry(resized_geometry)
+        mouse_event.accept()
+
+    def _finish_frameless_manual_resize(self):
+        """End an active frameless edge resize drag."""
+
+        self._frameless_manual_resize_edge = None
+        self._frameless_manual_resize_start_global_position = None
+        self._frameless_manual_resize_start_frame_geometry = None
+        self.releaseMouse()
+
+    def mouseMoveEvent(self, mouse_event: PyQt6.QtGui.QMouseEvent):
+        """Apply an in-progress frameless edge resize drag."""
+
+        if self._frameless_manual_resize_edge is not None:
+            self._apply_frameless_manual_resize(mouse_event)
+
+            return
+
+        super().mouseMoveEvent(mouse_event)
+
+    def mouseReleaseEvent(self, mouse_event: PyQt6.QtGui.QMouseEvent):
+        """Finish a frameless edge resize drag."""
+
+        if self._frameless_manual_resize_edge is not None:
+            self._finish_frameless_manual_resize()
+            mouse_event.accept()
+
+            return
+
+        super().mouseReleaseEvent(mouse_event)
+
+    def resizeEvent(self, resize_event: PyQt6.QtGui.QResizeEvent):
+        """Keep frameless resize grips aligned with the window edges."""
+
+        self._layout_frameless_resize_grips()
+        super().resizeEvent(resize_event)
+
+    def showEvent(self, show_event: PyQt6.QtGui.QShowEvent):
+        """Lay out resize grips once the window has a valid size."""
+
+        self._layout_frameless_resize_grips()
+        super().showEvent(show_event)
 
     def _add_special_key_buttons_to_parent(
             self,
