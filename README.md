@@ -203,6 +203,28 @@ This client patches **aardwolf** at runtime instead of vendoring or forking the 
 
 When adding or changing a runtime monkey-patch, update this section in the same change set.
 
+## Release (PyPI)
+
+Operator workflow mirrors a static frontend **build → package → deploy**, but artifacts are Python wheels/sdists and **deploy** uploads with **twine** (not S3).
+
+Activate pyenv for **`.python-version`**, install dev tools once (`pip install -e ".[dev]"`), then from the repo root:
+
+```bash
+./script/build.sh
+ARCHIVE="$(./script/package.sh patch)"
+./script/deploy.sh "${ARCHIVE}"
+```
+
+| Script | Role |
+|--------|------|
+| **`script/build.sh`** | `python -m build` → **`dist/`** (wheel + sdist). No version bump. |
+| **`script/package.sh`** | **`patch` \| `minor` \| `major`**: clean tree, bump **`pyproject.toml`**, commit, annotated **`vX.Y.Z`**, run **`build.sh`**, pack **`build/archives/vX.Y.Z_rdp_pipe.tar.gz`**. Stdout = archive path. |
+| **`script/deploy.sh`** | Positional archive path: extract, **`twine check`**, **`twine upload`**. Writes **`releases/pypi/X.Y.Z.md`** when the tree is clean. |
+
+PyPI credentials: **`~/.pypirc`** or **`TWINE_USERNAME`** / **`TWINE_PASSWORD`**. For TestPyPI, set **`TWINE_REPOSITORY_URL=https://test.pypi.org/legacy/`** before **`deploy.sh`**.
+
+After **`package.sh`**, push the release commit and tag when ready: **`git push origin HEAD vX.Y.Z`**.
+
 ## Test
 
 ```bash

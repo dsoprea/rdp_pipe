@@ -16,8 +16,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "build",
     "pytest",
     "pytest-asyncio",
+    "twine",
 ]
 mcp = [
     "mcp",
