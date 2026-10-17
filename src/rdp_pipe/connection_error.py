@@ -110,3 +110,17 @@ def format_session_disconnected_reconnecting_stderr(connection_url: str) -> str:
 
     return "error: RDP session to {endpoint} disconnected; reconnecting...\n".format(
         endpoint=endpoint)
+
+
+def format_session_disconnected_with_reason_stderr(
+        connection_url: str,
+        errinfo_name: str) -> str:
+    """Return stderr when the server sent SET_ERROR_INFO before the session dropped."""
+
+    endpoint = parse_connection_endpoint(connection_url)
+
+    return (
+        "error: RDP session to {endpoint} ended ({errinfo_name}); "
+        "awaiting reconnect choice or reconnecting...\n".format(
+            endpoint=endpoint,
+            errinfo_name=errinfo_name))

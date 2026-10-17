@@ -52,6 +52,7 @@ import rdp_pipe.connection_progress
 import rdp_pipe.display_control
 import rdp_pipe.pointer_debug
 import rdp_pipe.pointer_update
+import rdp_pipe.remote_session_end
 import rdp_pipe.trust_store
 
 
@@ -282,6 +283,18 @@ async def _patched_aardwolf_terminate(self):
 
 aardwolf.connection.RDPConnection.terminate = _patched_aardwolf_terminate
 
+_ORIGINAL_CHECK_LOGON_STATUS = aardwolf.connection.RDPConnection.check_logon_status
+
+
+def _patched_check_logon_status(self, data):
+    """Record SERVER_SHUTDOWN / SERVER_REBOOT on desktop connections."""
+
+    _ORIGINAL_CHECK_LOGON_STATUS(self, data)
+    rdp_pipe.remote_session_end.record_reconnect_prompt_errinfo_on_connection(self)
+
+
+aardwolf.connection.RDPConnection.check_logon_status = _patched_check_logon_status
+
 _ORIGINAL_RDPECLIP_HANDLE_FORMAT_DATA_REQUEST = \
     aardwolf.extensions.RDPECLIP.channel.RDPECLIPChannel._handle_format_data_request
 
@@ -401,6 +414,7 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
         self._pointer_pdu_count_by_update_code: dict[int, int] = {}
         self._share_channel_task = None
         self._terminate_in_progress = False
+        self.pending_remote_session_end_reason = None
 
     def set_pointer_update_listener(self, listener):
         """Register a callback invoked immediately for each pointer PDU."""
@@ -599,6 +613,8 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
             connect_result = await aardwolf.connection.RDPConnection.connect(self)
 
             if connect_result is not None and connect_result[1] is None:
+
+                self.pending_remote_session_end_reason = None
 
                 # Demand Active after RDPDISP layout sits on MCS.out_queue until we drain it.
 

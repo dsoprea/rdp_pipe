@@ -23,6 +23,7 @@ import rdp_pipe.mouse_debug
 import rdp_pipe.pointer_debug
 import rdp_pipe.qt_session_mapping
 import rdp_pipe.pointer_update
+import rdp_pipe.remote_session_end
 import rdp_pipe.rdp_session_thread
 
 
@@ -1386,6 +1387,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             self._input_queue,
             color_depth=color_depth,
             activity_stamp_filepath=activity_stamp_filepath)
+        self._worker.enable_reconnect_policy_prompt()
 
         self._worker_thread = PyQt6.QtCore.QThread()
         self._worker.moveToThread(self._worker_thread)
@@ -1399,6 +1401,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._worker.session_ready.connect(self._handle_session_ready)
         self._worker.clipboard_text_ready.connect(self._handle_remote_clipboard_text)
         self._worker.connection_progress.connect(self._handle_connection_progress)
+        self._worker.reconnect_policy_needed.connect(self._handle_reconnect_policy_needed)
 
         application_clipboard = PyQt6.QtWidgets.QApplication.clipboard()
         application_clipboard.dataChanged.connect(self._handle_local_clipboard_changed)
@@ -1414,6 +1417,32 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             self._session_rdp_ready = False
 
         self._connecting_overlay.set_progress_step(step_identifier)
+
+    def _handle_reconnect_policy_needed(self, errinfo_name: str):
+        """Ask whether to keep reconnecting after remote shutdown or reboot."""
+
+        dialog_title = rdp_pipe.remote_session_end.build_reconnect_policy_dialog_title(
+            errinfo_name)
+        dialog_message = rdp_pipe.remote_session_end.build_reconnect_policy_dialog_message(
+            errinfo_name)
+        message_box = PyQt6.QtWidgets.QMessageBox(self)
+        message_box.setWindowTitle(dialog_title)
+        message_box.setText(dialog_message)
+        message_box.setIcon(PyQt6.QtWidgets.QMessageBox.Icon.Question)
+        keep_trying_button = message_box.addButton(
+            "Keep Trying",
+            PyQt6.QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        exit_button = message_box.addButton(
+            "Exit",
+            PyQt6.QtWidgets.QMessageBox.ButtonRole.RejectRole)
+        message_box.setDefaultButton(keep_trying_button)
+        message_box.exec()
+        clicked_button = message_box.clickedButton()
+        continue_reconnect = clicked_button is keep_trying_button
+        self._worker.resolve_reconnect_policy(continue_reconnect)
+
+        if continue_reconnect is False:
+            self.close()
 
     def _handle_session_ready(self, session):
         """Start the optional command socket after RDP connect succeeds."""

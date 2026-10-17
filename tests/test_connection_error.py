@@ -116,3 +116,15 @@ def test_format_session_ended_stderr():
 
     assert stderr_text == \
         "error: RDP session ended unexpectedly (desktop buffer has no image data yet)\n"
+
+
+def test_format_session_disconnected_with_reason_stderr():
+    """Shutdown/reboot ERRINFO is included in the managed disconnect stderr line."""
+
+    stderr_text = rdp_pipe.connection_error.format_session_disconnected_with_reason_stderr(
+        "rdp+ntlm-password://user:secret@10.0.0.7:3390",
+        "SERVER_REBOOT")
+
+    assert stderr_text == (
+        "error: RDP session to 10.0.0.7:3390 ended (SERVER_REBOOT); "
+        "awaiting reconnect choice or reconnecting...\n")

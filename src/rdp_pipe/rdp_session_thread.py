@@ -12,6 +12,7 @@ import rdp_pipe.connection_error
 import rdp_pipe.keyboard_debug
 import rdp_pipe.connection_progress
 import rdp_pipe.pointer_update
+import rdp_pipe.remote_session_end
 import rdp_pipe.rdp_session_core
 
 
@@ -91,6 +92,7 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
     session_ready = PyQt6.QtCore.pyqtSignal(object)
     clipboard_text_ready = PyQt6.QtCore.pyqtSignal(str)
     connection_progress = PyQt6.QtCore.pyqtSignal(str)
+    reconnect_policy_needed = PyQt6.QtCore.pyqtSignal(str)
 
     def __init__(self, parent=None):
         """Initialize worker state; call set_session before start."""
@@ -111,6 +113,13 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
         self._connection_task = None
         self._input_forwarder_future = None
         self._stop_future = None
+        self._reconnect_policy_prompt_enabled = False
+        self._reconnect_policy_future = None
+
+    def enable_reconnect_policy_prompt(self):
+        """Allow the GUI to block auto-reconnect after SERVER_SHUTDOWN or SERVER_REBOOT."""
+
+        self._reconnect_policy_prompt_enabled = True
 
     def set_session(
             self,
@@ -307,10 +316,35 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
                 await self._session.run_until_stopped()
 
                 if connect_succeeded and self._gui_stopped_event.is_set() is False:
-                    disconnected_stderr = \
-                        rdp_pipe.connection_error.format_session_disconnected_reconnecting_stderr(
-                            self._connection_url)
-                    sys.stderr.write(disconnected_stderr)
+
+                    disconnect_reason = None
+
+                    if self._session.connection is not None:
+                        disconnect_reason = \
+                            self._session.connection.pending_remote_session_end_reason
+
+                    if (
+                            self._reconnect_policy_prompt_enabled
+                            and rdp_pipe.remote_session_end.is_reconnect_prompt_errinfo(
+                                disconnect_reason)):
+
+                        disconnected_stderr = \
+                            rdp_pipe.connection_error.format_session_disconnected_with_reason_stderr(
+                                self._connection_url,
+                                disconnect_reason)
+                        sys.stderr.write(disconnected_stderr)
+
+                        continue_reconnect = await self._await_reconnect_policy(
+                            disconnect_reason)
+
+                        if continue_reconnect is False:
+                            self._gui_stopped_event.set()
+
+                    else:
+                        disconnected_stderr = \
+                            rdp_pipe.connection_error.format_session_disconnected_reconnecting_stderr(
+                                self._connection_url)
+                        sys.stderr.write(disconnected_stderr)
 
             except asyncio.CancelledError:
                 return
@@ -355,6 +389,30 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
 
             await self._wait_before_reconnect()
 
+    async def _await_reconnect_policy(self, errinfo_name: str) -> bool:
+        """Block until the Qt thread resolves keep-trying vs exit."""
+
+        event_loop = asyncio.get_event_loop()
+        self._reconnect_policy_future = event_loop.create_future()
+        self.reconnect_policy_needed.emit(errinfo_name)
+        continue_reconnect = await self._reconnect_policy_future
+        self._reconnect_policy_future = None
+
+        return continue_reconnect
+
+    def _complete_reconnect_policy_future(self, continue_reconnect: bool):
+        """Set the reconnect-policy future from the asyncio thread."""
+
+        reconnect_policy_future = self._reconnect_policy_future
+
+        if reconnect_policy_future is None:
+            return
+
+        if reconnect_policy_future.done():
+            return
+
+        reconnect_policy_future.set_result(continue_reconnect)
+
     def _async_thread_main(self):
         """Create an asyncio loop and run the connection coroutine."""
 
@@ -385,11 +443,27 @@ class RdpSessionWorker(PyQt6.QtCore.QObject):
             daemon=True)
         self._async_thread.start()
 
+    @PyQt6.QtCore.pyqtSlot(bool)
+    def resolve_reconnect_policy(self, continue_reconnect: bool):
+        """Complete the reconnect-policy wait from the Qt main thread."""
+
+        if self._event_loop is None:
+            return
+
+        self._event_loop.call_soon_threadsafe(
+            self._complete_reconnect_policy_future,
+            continue_reconnect)
+
     @PyQt6.QtCore.pyqtSlot()
     def stop(self):
         """Signal shutdown and disconnect."""
 
         self._gui_stopped_event.set()
+
+        if self._reconnect_policy_future is not None and self._event_loop is not None:
+            self._event_loop.call_soon_threadsafe(
+                self._complete_reconnect_policy_future,
+                False)
 
         # Cooperative terminate lets aardwolf readers finish. Cancelling the
         # connect task aborts that cleanup and leaves Queue.get waiters pending.

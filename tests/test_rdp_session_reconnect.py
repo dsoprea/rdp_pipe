@@ -114,3 +114,93 @@ def test_format_session_disconnected_reconnecting_stderr():
 
     assert stderr_text == \
         "error: RDP session to 10.0.0.7:3390 disconnected; reconnecting...\n"
+
+
+@pytest.mark.asyncio
+async def test_run_connection_exits_when_reconnect_policy_declines(monkeypatch):
+    """Declining the shutdown/reboot dialog stops the reconnect loop."""
+
+    worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
+    worker.enable_reconnect_policy_prompt()
+    worker.set_session(
+        "rdp+ntlm-password://user:secret@10.0.0.7",
+        1280,
+        800,
+        unittest.mock.Mock(),
+        color_depth=32)
+
+    connect_attempt_count = 0
+
+    class FakeConnection:
+        """Stub connection with a pending shutdown ERRINFO."""
+
+        pending_remote_session_end_reason = "SERVER_SHUTDOWN"
+
+    class FakeAsyncSession:
+        """Session stub that drops once with a shutdown reason."""
+
+        def __init__(
+                self,
+                connection_url,
+                video_width,
+                video_height,
+                color_depth=32,
+                activity_stamp_filepath=None):
+
+            self.display_caps_unavailable = False
+            self._stop_event = asyncio.Event()
+            self.connection = FakeConnection()
+
+        def add_video_frame_callback(self, callback):
+            pass
+
+        def add_pointer_update_callback(self, callback):
+            pass
+
+        def add_resolution_changed_callback(self, callback):
+            pass
+
+        def add_clipboard_text_callback(self, callback):
+            pass
+
+        def set_progress_callback(self, callback):
+            pass
+
+        async def connect(self):
+            nonlocal connect_attempt_count
+
+            connect_attempt_count = connect_attempt_count + 1
+
+        async def drain_queued_pointer_updates(self):
+            pass
+
+        async def run_until_stopped(self):
+            pass
+
+        async def stop(self):
+            self._stop_event.set()
+
+    async def _decline_reconnect_policy(_worker, _errinfo_name):
+        return False
+
+    monkeypatch.setattr(
+        rdp_pipe.rdp_session_thread.RdpSessionWorker,
+        "_await_reconnect_policy",
+        _decline_reconnect_policy)
+    monkeypatch.setattr(
+        rdp_pipe.rdp_session_core,
+        "RdpAsyncSession",
+        FakeAsyncSession)
+    monkeypatch.setattr(
+        rdp_pipe.rdp_session_thread,
+        "SESSION_RECONNECT_DELAY_SECONDS",
+        0.0)
+    monkeypatch.setattr(
+        rdp_pipe.rdp_session_thread,
+        "SESSION_RECONNECT_POLL_SECONDS",
+        0.0)
+
+    await worker._run_connection()
+
+    assert connect_attempt_count == 1
+    assert worker._gui_stopped_event.is_set() is True
