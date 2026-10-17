@@ -1,5 +1,7 @@
 # rdp_pipe
 
+[![PyPI version](https://img.shields.io/pypi/v/rdp_pipe)](https://pypi.org/project/rdp_pipe/)
+
 Python desktop RDP client for Linux operators connecting to remote hosts over RDP with NLA (CredSSP) and NTLM password authentication. The UI is a native PyQt6 window with pointer-gated keyboard input and seamless resize via MS-RDPEDISP when the server supports it.
 
 ## Prerequisites
