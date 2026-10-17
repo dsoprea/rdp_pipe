@@ -20,6 +20,7 @@ import rdp_pipe.connection_url
 import rdp_pipe.display_control
 import rdp_pipe.keyboard_debug
 import rdp_pipe.mouse_debug
+import rdp_pipe.rdp_input
 import rdp_pipe.pointer_debug
 import rdp_pipe.qt_session_mapping
 import rdp_pipe.pointer_update
@@ -35,6 +36,8 @@ CONNECTING_OVERLAY_PANEL_BACKGROUND = "#2b2b2b"
 
 DEFAULT_WINDOW_WIDTH = 1280
 DEFAULT_WINDOW_HEIGHT = 800
+SESSION_TITLE_BAR_HEIGHT = 36
+SESSION_TITLE_BAR_BACKGROUND = "#2b2b2b"
 SESSION_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 WORKER_THREAD_SHUTDOWN_WAIT_MILLISECONDS = 2000
 RESIZE_DEBOUNCE_MILLISECONDS = 250
@@ -552,6 +555,27 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         """When True, ignore local mouse and keyboard events (screen updates only)."""
 
         self._viewer_mode = viewer_mode
+
+    def enqueue_keyboard_messages(self, keyboard_messages: list):
+        """Put prebuilt keyboard messages on the input queue (bypasses pointer gating)."""
+
+        if self._input_queue is None:
+            return
+
+        for keyboard_message in keyboard_messages:
+            self._input_queue.put(keyboard_message)
+
+    def send_ctrl_alt_del_to_remote(self):
+        """Send Ctrl+Alt+Del to the remote host (secure attention sequence)."""
+
+        keyboard_messages = rdp_pipe.rdp_input.build_ctrl_alt_del_messages()
+        self.enqueue_keyboard_messages(keyboard_messages)
+
+    def send_windows_super_key_to_remote(self):
+        """Send a Windows (Super) key press and release to the remote host."""
+
+        keyboard_messages = rdp_pipe.rdp_input.build_windows_super_key_messages()
+        self.enqueue_keyboard_messages(keyboard_messages)
 
     def set_remote_dimensions(self, width: int, height: int):
         """Update remote resolution used for coordinate mapping and painting."""
@@ -1327,6 +1351,147 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         super().resizeEvent(resize_event)
 
 
+class RdpSessionTitleBar(PyQt6.QtWidgets.QWidget):
+    """Frameless-window title bar with session keys and window controls."""
+
+    ctrl_alt_del_clicked = PyQt6.QtCore.pyqtSignal()
+    super_key_clicked = PyQt6.QtCore.pyqtSignal()
+
+    def __init__(self, session_window: PyQt6.QtWidgets.QMainWindow):
+        """Build title text, special-key buttons, and min/max/close controls."""
+
+        super().__init__(session_window)
+
+        self._session_window = session_window
+
+        self.setFixedHeight(SESSION_TITLE_BAR_HEIGHT)
+        self.setAttribute(PyQt6.QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(
+            "background-color: {background}; color: #e8eaed;".format(
+                background=SESSION_TITLE_BAR_BACKGROUND))
+
+        self._title_label = PyQt6.QtWidgets.QLabel(session_window.windowTitle(), self)
+        self._title_label.setStyleSheet(
+            "background-color: transparent; padding-left: 8px;")
+
+        self._ctrl_alt_del_button = PyQt6.QtWidgets.QPushButton("CTRL+ALT+DEL", self)
+        self._ctrl_alt_del_button.clicked.connect(self.ctrl_alt_del_clicked.emit)
+
+        self._super_button = PyQt6.QtWidgets.QPushButton("SUPER", self)
+        self._super_button.clicked.connect(self.super_key_clicked.emit)
+
+        application_style = PyQt6.QtWidgets.QApplication.style()
+
+        self._minimize_button = PyQt6.QtWidgets.QToolButton(self)
+        self._minimize_button.setIcon(
+            application_style.standardIcon(
+                PyQt6.QtWidgets.QStyle.StandardPixmap.SP_TitleBarMinButton))
+        self._minimize_button.clicked.connect(session_window.showMinimized)
+
+        self._maximize_button = PyQt6.QtWidgets.QToolButton(self)
+        self._maximize_button.clicked.connect(self._handle_maximize_button_clicked)
+
+        self._close_button = PyQt6.QtWidgets.QToolButton(self)
+        self._close_button.setIcon(
+            application_style.standardIcon(
+                PyQt6.QtWidgets.QStyle.StandardPixmap.SP_TitleBarCloseButton))
+        self._close_button.clicked.connect(session_window.close)
+
+        title_bar_layout = PyQt6.QtWidgets.QHBoxLayout(self)
+        title_bar_layout.setContentsMargins(4, 0, 4, 0)
+        title_bar_layout.setSpacing(6)
+        title_bar_layout.addWidget(self._title_label, 1)
+        title_bar_layout.addWidget(self._ctrl_alt_del_button)
+        title_bar_layout.addWidget(self._super_button)
+        title_bar_layout.addWidget(self._minimize_button)
+        title_bar_layout.addWidget(self._maximize_button)
+        title_bar_layout.addWidget(self._close_button)
+
+        session_window.windowTitleChanged.connect(self._title_label.setText)
+        self.sync_maximize_button_icon()
+
+    def sync_maximize_button_icon(self):
+        """Refresh the maximize button icon for the current window state."""
+
+        application_style = PyQt6.QtWidgets.QApplication.style()
+
+        if self._session_window.isMaximized():
+            standard_pixmap = PyQt6.QtWidgets.QStyle.StandardPixmap.SP_TitleBarNormalButton
+        else:
+            standard_pixmap = PyQt6.QtWidgets.QStyle.StandardPixmap.SP_TitleBarMaxButton
+
+        self._maximize_button.setIcon(application_style.standardIcon(standard_pixmap))
+
+    def _handle_maximize_button_clicked(self):
+        """Toggle maximized state for the session window."""
+
+        if self._session_window.isMaximized():
+            self._session_window.showNormal()
+        else:
+            self._session_window.showMaximized()
+
+        self.sync_maximize_button_icon()
+
+    def _position_is_title_drag_region(self, local_position: PyQt6.QtCore.QPoint) -> bool:
+        """Return True when a press should move the window, not hit a control."""
+
+        child_widget = self.childAt(local_position)
+
+        if child_widget is None:
+            return True
+
+        return child_widget is self._title_label
+
+    def mousePressEvent(self, mouse_event: PyQt6.QtGui.QMouseEvent):
+        """Start a system window drag from the title region."""
+
+        if mouse_event.button() != PyQt6.QtCore.Qt.MouseButton.LeftButton:
+            super().mousePressEvent(mouse_event)
+
+            return
+
+        local_position = PyQt6.QtCore.QPoint(
+            int(mouse_event.position().x()),
+            int(mouse_event.position().y()))
+
+        if self._position_is_title_drag_region(local_position) is False:
+            super().mousePressEvent(mouse_event)
+
+            return
+
+        window_handle = self.window().windowHandle()
+
+        if window_handle is not None:
+            window_handle.startSystemMove()
+
+        mouse_event.accept()
+
+    def mouseDoubleClickEvent(self, mouse_event: PyQt6.QtGui.QMouseEvent):
+        """Maximize or restore when the title region is double-clicked."""
+
+        if mouse_event.button() != PyQt6.QtCore.Qt.MouseButton.LeftButton:
+            super().mouseDoubleClickEvent(mouse_event)
+
+            return
+
+        local_position = PyQt6.QtCore.QPoint(
+            int(mouse_event.position().x()),
+            int(mouse_event.position().y()))
+
+        if self._position_is_title_drag_region(local_position) is False:
+            super().mouseDoubleClickEvent(mouse_event)
+
+            return
+
+        if self._session_window.isMaximized():
+            self._session_window.showNormal()
+        else:
+            self._session_window.showMaximized()
+
+        self.sync_maximize_button_icon()
+        mouse_event.accept()
+
+
 class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
     """Top-level window hosting the RDP canvas and background session worker."""
 
@@ -1356,6 +1521,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._clipboard_sync_from_remote = False
         self._video_width = video_width
         self._video_height = video_height
+        self._session_title_bar = None
 
         self._frame_buffer = PyQt6.QtGui.QImage(
             video_width,
@@ -1378,6 +1544,8 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._session_container.resize_requested.connect(self._handle_canvas_resize_requested)
 
         self.setCentralWidget(self._session_container)
+
+        self._configure_session_window_title_bar_chrome()
 
         self._worker = rdp_pipe.rdp_session_thread.RdpSessionWorker()
         self._worker.set_session(
@@ -1409,6 +1577,54 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         PyQt6.QtWidgets.QApplication.instance().aboutToQuit.connect(
             self._handle_application_about_to_quit)
         self._worker_thread.start()
+
+    def _configure_session_window_title_bar_chrome(self):
+        """Place special-key buttons in the window title bar for this platform."""
+
+        if sys.platform == "darwin":
+            self.setUnifiedTitleAndToolBarOnMac(True)
+            session_toolbar = PyQt6.QtWidgets.QToolBar("Session", self)
+            session_toolbar.setMovable(False)
+            self._add_special_key_buttons_to_parent(session_toolbar)
+            self.addToolBar(session_toolbar)
+
+            return
+
+        self.setWindowFlags(
+            self.windowFlags()
+            | PyQt6.QtCore.Qt.WindowType.FramelessWindowHint)
+
+        session_title_bar = RdpSessionTitleBar(self)
+        session_title_bar.ctrl_alt_del_clicked.connect(
+            self._handle_ctrl_alt_del_title_bar_clicked)
+        session_title_bar.super_key_clicked.connect(
+            self._handle_super_key_title_bar_clicked)
+        self.setMenuWidget(session_title_bar)
+        self._session_title_bar = session_title_bar
+
+    def _add_special_key_buttons_to_parent(
+            self,
+            button_parent: PyQt6.QtWidgets.QToolBar):
+
+        """Add CTRL+ALT+DEL and SUPER buttons to the macOS unified session toolbar."""
+
+        ctrl_alt_del_button = PyQt6.QtWidgets.QPushButton("CTRL+ALT+DEL", button_parent)
+        ctrl_alt_del_button.clicked.connect(self._handle_ctrl_alt_del_title_bar_clicked)
+        button_parent.addWidget(ctrl_alt_del_button)
+
+        super_button = PyQt6.QtWidgets.QPushButton("SUPER", button_parent)
+        super_button.clicked.connect(self._handle_super_key_title_bar_clicked)
+        button_parent.addWidget(super_button)
+
+    def _handle_ctrl_alt_del_title_bar_clicked(self):
+        """Forward the secure attention sequence from the title bar."""
+
+        self._canvas.send_ctrl_alt_del_to_remote()
+
+    def _handle_super_key_title_bar_clicked(self):
+        """Forward a Windows key tap from the title bar."""
+
+        self._canvas.send_windows_super_key_to_remote()
 
     def _handle_connection_progress(self, step_identifier: str):
         """Update the connecting overlay as the background session advances."""
@@ -1707,6 +1923,12 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
         if change_event.type() == PyQt6.QtCore.QEvent.Type.WindowActivate:
             self._canvas.refocus_keyboard_input_if_pointer_over_canvas()
+
+        if change_event.type() == PyQt6.QtCore.QEvent.Type.WindowStateChange:
+            session_title_bar = getattr(self, "_session_title_bar", None)
+
+            if session_title_bar is not None:
+                session_title_bar.sync_maximize_button_icon()
 
         super().changeEvent(change_event)
 

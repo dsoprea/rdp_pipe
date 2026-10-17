@@ -72,6 +72,24 @@ def build_mouse_click_messages(x_position: int, y_position: int, button_name: st
     return [press_message, release_message]
 
 
+def _append_virtual_key_press(messages: list, vk_code: str) -> None:
+    """Append one virtual-key press message to the outgoing keyboard list."""
+
+    press_message = aardwolf.commons.queuedata.keyboard.RDP_KEYBOARD_SCANCODE()
+    press_message.vk_code = vk_code
+    press_message.is_pressed = True
+    messages.append(press_message)
+
+
+def _append_virtual_key_release(messages: list, vk_code: str) -> None:
+    """Append one virtual-key release message to the outgoing keyboard list."""
+
+    release_message = aardwolf.commons.queuedata.keyboard.RDP_KEYBOARD_SCANCODE()
+    release_message.vk_code = vk_code
+    release_message.is_pressed = False
+    messages.append(release_message)
+
+
 def build_named_key_messages(key_name: str) -> list:
     """Return press and release scancode messages for a named key."""
 
@@ -80,16 +98,38 @@ def build_named_key_messages(key_name: str) -> list:
             "unsupported key name {key_name}".format(key_name=key_name))
 
     vk_code = NAMED_KEY_TO_VK_CODE[key_name]
+    messages = []
 
-    press_message = aardwolf.commons.queuedata.keyboard.RDP_KEYBOARD_SCANCODE()
-    press_message.vk_code = vk_code
-    press_message.is_pressed = True
+    _append_virtual_key_press(messages, vk_code)
+    _append_virtual_key_release(messages, vk_code)
 
-    release_message = aardwolf.commons.queuedata.keyboard.RDP_KEYBOARD_SCANCODE()
-    release_message.vk_code = vk_code
-    release_message.is_pressed = False
+    return messages
 
-    return [press_message, release_message]
+
+def build_ctrl_alt_del_messages() -> list:
+    """Return the keyboard sequence for the Windows secure attention chord."""
+
+    messages = []
+
+    _append_virtual_key_press(messages, "VK_LCONTROL")
+    _append_virtual_key_press(messages, "VK_LMENU")
+    _append_virtual_key_press(messages, "VK_DELETE")
+    _append_virtual_key_release(messages, "VK_DELETE")
+    _append_virtual_key_release(messages, "VK_LMENU")
+    _append_virtual_key_release(messages, "VK_LCONTROL")
+
+    return messages
+
+
+def build_windows_super_key_messages() -> list:
+    """Return press and release messages for the left Windows (Super) key."""
+
+    messages = []
+
+    _append_virtual_key_press(messages, "VK_LWIN")
+    _append_virtual_key_release(messages, "VK_LWIN")
+
+    return messages
 
 
 def build_text_key_messages(text: str) -> list:

@@ -223,3 +223,38 @@ def test_keyboard_debug_does_not_crash_on_key_press(qt_application, monkeypatch)
     messages = _drain_keyboard_messages(input_queue)
 
     assert len(messages) == 1
+
+
+def test_send_ctrl_alt_del_bypasses_pointer_gating(qt_application):
+    """Toolbar secure attention works when the pointer is outside the canvas."""
+
+    input_queue = queue.Queue()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
+    canvas.set_input_queue(input_queue)
+    canvas._pointer_inside_canvas = False
+
+    canvas.send_ctrl_alt_del_to_remote()
+
+    messages = _drain_keyboard_messages(input_queue)
+
+    assert len(messages) == 6
+    assert messages[2].vk_code == "VK_DELETE"
+    assert messages[2].is_pressed is True
+
+
+def test_send_windows_super_key_works_in_viewer_mode(qt_application):
+    """Toolbar Super key works when --viewer blocks normal keyboard forwarding."""
+
+    input_queue = queue.Queue()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
+    canvas.set_input_queue(input_queue)
+    canvas.set_viewer_mode(True)
+
+    canvas.send_windows_super_key_to_remote()
+
+    messages = _drain_keyboard_messages(input_queue)
+
+    assert len(messages) == 2
+    assert messages[0].vk_code == "VK_LWIN"
+    assert messages[0].is_pressed is True
+    assert messages[1].is_pressed is False

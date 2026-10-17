@@ -58,6 +58,7 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 ## Desktop session (PyQt6)
 
 - Window title `RDP - <host>` where `<host>` is the connection hostname from the CLI URL argument
+- Title bar **CTRL+ALT+DEL** (secure attention on the remote host) and **SUPER** (Windows key press and release) buttons in the window chrome (frameless client-side title bar on Linux and Windows, unified toolbar in the title bar on macOS); works even when the pointer is outside the canvas or `--viewer` is set
 - Connecting overlay: dimmed full-window modal centered on the session window listing connect steps (prepare, TCP/TLS, certificate trust, authentication, display configuration) until the session is ready
 - Shutting-down overlay: dimmed modal with indeterminate progress while the client disconnects and background threads exit
 - Resizable native window (default 1280×800) showing the remote framebuffer at 1:1 pixels (letterboxed when local and remote sizes differ)
