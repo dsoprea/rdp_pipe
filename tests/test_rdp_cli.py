@@ -7,6 +7,7 @@ from unittest import mock
 import pytest
 
 import rdp_pipe.command_socket
+import rdp_pipe.config.entrypoint.rdp
 import rdp_pipe.entrypoint.rdp
 
 
@@ -200,6 +201,43 @@ def test_headless_shutdown_signal_handler_stops_session():
     assert signal.SIGTERM in shutdown_signal_handlers
 
 
+def test_gui_run_sets_qt_application_identity_before_qapplication():
+    """GUI startup sets Qt application name and Wayland app_id for the task switcher."""
+
+    mock_application = mock.Mock()
+    mock_application.exec.return_value = 0
+    mock_session_window = mock.Mock()
+    mock_timer = mock.Mock()
+
+    with mock.patch(
+            "PyQt6.QtCore.QCoreApplication.setApplicationName") as mock_set_application_name:
+        with mock.patch(
+                "PyQt6.QtGui.QGuiApplication.setApplicationDisplayName") as mock_set_display_name:
+            with mock.patch(
+                    "PyQt6.QtGui.QGuiApplication.setDesktopFileName") as mock_set_desktop_file_name:
+                with mock.patch("PyQt6.QtWidgets.QApplication", return_value=mock_application):
+                    with mock.patch(
+                            "rdp_pipe.qt_session_window.RdpSessionWindow",
+                            return_value=mock_session_window):
+                        with mock.patch("PyQt6.QtCore.QTimer", return_value=mock_timer):
+                            with mock.patch("signal.signal"):
+                                rdp_pipe.entrypoint.rdp.run_gui_session(
+                                    "rdp+ntlm-password://user@10.0.0.5",
+                                    None,
+                                    None,
+                                    32,
+                                    True,
+                                    False,
+                                    None)
+
+    mock_set_application_name.assert_called_once_with(
+        rdp_pipe.config.entrypoint.rdp.QT_APPLICATION_NAME)
+    mock_set_display_name.assert_called_once_with(
+        rdp_pipe.config.entrypoint.rdp.QT_APPLICATION_DISPLAY_NAME)
+    mock_set_desktop_file_name.assert_called_once_with(
+        rdp_pipe.config.entrypoint.rdp.QT_WAYLAND_APP_ID)
+
+
 def test_gui_terminal_sigint_closes_window_and_quits_application():
     """Terminal Ctrl+C closes the session window and exits the Qt event loop."""
 
@@ -213,19 +251,22 @@ def test_gui_terminal_sigint_closes_window_and_quits_application():
         captured_signal_handlers[signum] = handler
 
     with mock.patch("signal.signal", capture_signal_handler):
-        with mock.patch("PyQt6.QtWidgets.QApplication", return_value=mock_application):
-            with mock.patch(
-                    "rdp_pipe.qt_session_window.RdpSessionWindow",
-                    return_value=mock_session_window):
-                with mock.patch("PyQt6.QtCore.QTimer", return_value=mock_timer):
-                    exit_code = rdp_pipe.entrypoint.rdp.run_gui_session(
-                        "rdp+ntlm-password://user@10.0.0.5",
-                        None,
-                        None,
-                        32,
-                        True,
-                        False,
-                        None)
+        with mock.patch("PyQt6.QtCore.QCoreApplication.setApplicationName"):
+            with mock.patch("PyQt6.QtGui.QGuiApplication.setApplicationDisplayName"):
+                with mock.patch("PyQt6.QtGui.QGuiApplication.setDesktopFileName"):
+                    with mock.patch("PyQt6.QtWidgets.QApplication", return_value=mock_application):
+                        with mock.patch(
+                                "rdp_pipe.qt_session_window.RdpSessionWindow",
+                                return_value=mock_session_window):
+                            with mock.patch("PyQt6.QtCore.QTimer", return_value=mock_timer):
+                                exit_code = rdp_pipe.entrypoint.rdp.run_gui_session(
+                                    "rdp+ntlm-password://user@10.0.0.5",
+                                    None,
+                                    None,
+                                    32,
+                                    True,
+                                    False,
+                                    None)
 
     assert exit_code == 0
     assert signal.SIGINT in captured_signal_handlers

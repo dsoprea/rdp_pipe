@@ -92,9 +92,18 @@ def run_gui_session(
     """Launch the PyQt6 desktop client."""
 
     import PyQt6.QtCore
+    import PyQt6.QtGui
     import PyQt6.QtWidgets
 
+    import rdp_pipe.config.entrypoint.rdp as rdp_entrypoint_config
     import rdp_pipe.qt_session_window
+
+    PyQt6.QtCore.QCoreApplication.setApplicationName(
+        rdp_entrypoint_config.QT_APPLICATION_NAME)
+    PyQt6.QtGui.QGuiApplication.setApplicationDisplayName(
+        rdp_entrypoint_config.QT_APPLICATION_DISPLAY_NAME)
+    PyQt6.QtGui.QGuiApplication.setDesktopFileName(
+        rdp_entrypoint_config.QT_WAYLAND_APP_ID)
 
     qt_application = PyQt6.QtWidgets.QApplication(sys.argv)
     session_window = rdp_pipe.qt_session_window.RdpSessionWindow(
