@@ -1712,7 +1712,8 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             command_socket_path: str | None = None,
             activity_stamp_filepath: str | None = None,
             autoresize_enabled: bool = True,
-            viewer_mode: bool = False):
+            viewer_mode: bool = False,
+            session_title: str | None = None):
 
         """Build UI, iosettings, and the asyncio/Qt bridge."""
 
@@ -1742,7 +1743,9 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
             PyQt6.QtGui.QImage.Format.Format_RGB32)
 
         self.setWindowTitle(
-            rdp_pipe.connection_url.build_session_window_title(connection_url))
+            rdp_pipe.connection_url.build_session_window_title(
+                connection_url,
+                session_title))
         self.setMinimumSize(0, 0)
 
         self._session_container = RdpSessionContainer(self)

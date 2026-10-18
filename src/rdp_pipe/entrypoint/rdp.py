@@ -54,6 +54,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="ignore local mouse and keyboard input; screen updates only (command pipe unchanged)")
 
+    parser.add_argument(
+        "--title",
+        metavar="TITLE",
+        default=None,
+        help="optional label shown in the title bar to the right of the hostname")
+
     return parser
 
 
@@ -81,7 +87,8 @@ def run_gui_session(
         activity_stamp_filepath: str | None,
         color_depth: int,
         autoresize_enabled: bool,
-        viewer_mode: bool) -> int:
+        viewer_mode: bool,
+        session_title: str | None) -> int:
     """Launch the PyQt6 desktop client."""
 
     import PyQt6.QtCore
@@ -98,7 +105,8 @@ def run_gui_session(
         command_socket_path=command_socket_path,
         activity_stamp_filepath=activity_stamp_filepath,
         autoresize_enabled=autoresize_enabled,
-        viewer_mode=viewer_mode)
+        viewer_mode=viewer_mode,
+        session_title=session_title)
 
     session_window.show()
 
@@ -312,7 +320,8 @@ def main(argv: list[str] | None = None) -> int:
         activity_stamp_filepath,
         arguments.color_depth,
         autoresize_enabled=not arguments.no_autoresize,
-        viewer_mode=arguments.viewer)
+        viewer_mode=arguments.viewer,
+        session_title=arguments.title)
 
 
 if __name__ == "__main__":

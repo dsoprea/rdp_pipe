@@ -157,3 +157,13 @@ def test_build_session_window_title_uses_hostname():
         "rdp+ntlm-password://user:secret@win10.example")
 
     assert userinfo_title == "RDP - win10.example"
+
+
+def test_build_session_window_title_appends_optional_title():
+    """Optional session title appears after the hostname in the window title."""
+
+    window_title = rdp_pipe.connection_url.build_session_window_title(
+        "rdp+ntlm-password://10.0.0.5",
+        "Lab VM")
+
+    assert window_title == "RDP - 10.0.0.5 — Lab VM"

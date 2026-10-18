@@ -107,6 +107,18 @@ def test_viewer_parses():
     assert viewer_arguments.pipe is True
 
 
+def test_title_parses():
+    """--title supplies an optional session window title bar label."""
+
+    parser = rdp_pipe.entrypoint.rdp.build_argument_parser()
+    default_arguments = parser.parse_args(["10.0.0.5"])
+    titled_arguments = parser.parse_args(
+        ["--title", "Staging desktop", "10.0.0.5"])
+
+    assert default_arguments.title is None
+    assert titled_arguments.title == "Staging desktop"
+
+
 def test_headless_shutdown_signal_handler_stops_session():
     """Terminal Ctrl+C registers SIGINT/SIGTERM handlers that stop the session."""
 
@@ -212,7 +224,8 @@ def test_gui_terminal_sigint_closes_window_and_quits_application():
                         None,
                         32,
                         True,
-                        False)
+                        False,
+                        None)
 
     assert exit_code == 0
     assert signal.SIGINT in captured_signal_handlers
