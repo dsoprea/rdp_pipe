@@ -46,6 +46,7 @@ import aardwolf.protocol.T128.share
 import aardwolf.protocol.T128.synchronizepdu
 import aardwolf.vncconnection
 import asyauth.common.credentials
+import asysocks.unicomm.common.connection
 import PIL.Image
 
 import rdp_pipe.connection_progress
@@ -62,10 +63,28 @@ DISPLAY_CONTROL_CAPS_TIMEOUT_SECONDS = 10.0
 TERMINATE_DISCONNECT_TIMEOUT_SECONDS = 2.0
 
 _CONNECTING_DESKTOP_CONNECTION = None
+_ORIGINAL_UNI_CONNECTION_READ = asysocks.unicomm.common.connection.UniConnection.read
 _ORIGINAL_TS_UD_CS_CORE_TO_BYTES = \
     aardwolf.protocol.T124.userdata.clientcoredata.TS_UD_CS_CORE.to_bytes
 _ORIGINAL_POINTER_CAPABILITYSET_INIT = \
     aardwolf.protocol.pdu.capabilities.pointer.TS_POINTER_CAPABILITYSET.__init__
+
+
+async def _patched_uni_connection_read(self):
+    """End read iteration when asysocks yields None on transport errors."""
+
+    # aardwolf __x224_reader unpacks each packet as (is_fastpath, response); bare None
+    # from UniConnection.read except path causes TypeError during reconnect teardown.
+
+    async for packet in _ORIGINAL_UNI_CONNECTION_READ(self):
+
+        if packet is None:
+            return
+
+        yield packet
+
+
+asysocks.unicomm.common.connection.UniConnection.read = _patched_uni_connection_read
 
 
 def _patched_ts_ud_cs_core_to_bytes(self):
@@ -221,6 +240,17 @@ def _is_expected_shutdown_failure(error: BaseException) -> bool:
     return False
 
 
+def _is_transport_closing(connection) -> bool:
+    """Return True when the underlying UniConnection is already closing."""
+
+    transport_connection = getattr(connection, "_RDPConnection__connection", None)
+
+    if transport_connection is None:
+        return False
+
+    return getattr(transport_connection, "closing", False) is True
+
+
 async def _patched_aardwolf_terminate(self):
     """Skip or silence graceful shutdown when the server or transport is already gone."""
 
@@ -241,8 +271,13 @@ async def _patched_aardwolf_terminate(self):
                     _AARDWOLF_LOGGER.warning("Error while requesting shutdown")
 
             elif will_shutdown is False:
-                _AARDWOLF_LOGGER.warning(
-                    "Server refused to shutdown, proceeding with termination anyway...")
+
+                if _is_transport_closing(self):
+                    _AARDWOLF_LOGGER.debug(
+                        "Server refused shutdown while transport is closing; terminating")
+                else:
+                    _AARDWOLF_LOGGER.warning(
+                        "Server refused to shutdown, proceeding with termination anyway...")
 
         joined_channels = self._RDPConnection__joined_channels
 

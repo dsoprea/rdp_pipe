@@ -2,6 +2,35 @@
 
 Postmortems for unintuitive defects caused by wire formats, library behavior, or platform defaults — so we do not re-learn them.
 
+## x224 reader TypeError on None from asysocks read
+
+### Symptom
+
+During reconnect to an unreachable host, or after **Ctrl+C** while teardown runs, stderr showed:
+
+```text
+aardwolf ERROR  Error: cannot unpack non-iterable NoneType object
+  ...
+  async for is_fastpath, response in self.__connection.read():
+```
+
+Often alongside `error: could not connect to host:3389 (connection failed)` and `Server refused to shutdown, proceeding with termination anyway...`.
+
+### Root cause
+
+`asysocks.unicomm.common.connection.UniConnection.read` **yields `None`** on transport read exceptions. aardwolf `__x224_reader` assumes every yielded value is a `(is_fastpath, response)` tuple and unpacks it in `async for`, which raises `TypeError` when the value is bare `None`.
+
+### Fix
+
+Monkey-patch `UniConnection.read` in [`rdp_connection.py`](src/rdp_pipe/rdp_connection.py): wrap the stock async generator and **return** (end iteration) when `packet is None` instead of yielding it.
+
+Downgrade `Server refused to shutdown` to DEBUG when the transport is already closing.
+
+### Prevention
+
+- `test_patched_uni_connection_read_stops_before_none_unpack` in [`tests/test_rdp_session_shutdown.py`](tests/test_rdp_session_shutdown.py).
+- README monkey-patch table documents `_patched_uni_connection_read`.
+
 ## Blank viewport — fastpath `list` has no `updateCode`
 
 ### Symptom

@@ -730,3 +730,31 @@ def test_connect_failure_stderr_suppressed_when_shutdown_requested():
     """Do not print could not connect stderr when the window is already closing."""
 
     asyncio.run(_run_connect_failure_stderr_suppressed_on_shutdown())
+
+
+async def _collect_patched_uni_connection_read_packets():
+    """Drive the patched UniConnection.read wrapper with a fake underlying read."""
+
+    packets_collected = []
+
+    async def fake_original_uni_connection_read(_self):
+        yield (False, "first-packet")
+        yield None
+        yield (True, b"after-none")
+
+    rdp_pipe.rdp_connection._ORIGINAL_UNI_CONNECTION_READ = fake_original_uni_connection_read
+
+    connection_stub = unittest.mock.Mock()
+
+    async for packet in rdp_pipe.rdp_connection._patched_uni_connection_read(connection_stub):
+        packets_collected.append(packet)
+
+    return packets_collected
+
+
+def test_patched_uni_connection_read_stops_before_none_unpack():
+    """Bare None from asysocks read must not reach aardwolf __x224_reader."""
+
+    packets_collected = asyncio.run(_collect_patched_uni_connection_read_packets())
+
+    assert packets_collected == [(False, "first-packet")]

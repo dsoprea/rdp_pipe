@@ -51,6 +51,17 @@ def test_describe_connection_failure_connection_reset():
     assert failure_reason == "connection lost"
 
 
+def test_describe_connection_failure_uses_exception_message():
+    """Generic exceptions surface str(error) instead of connection failed."""
+
+    connect_error = Exception("Server refused our connection request! Reason: HYBRID_REQUIRED")
+
+    failure_reason = rdp_pipe.connection_error.describe_connection_failure(
+        connect_error)
+
+    assert failure_reason == "Server refused our connection request! Reason: HYBRID_REQUIRED"
+
+
 def test_parse_connection_endpoint_default_port():
     """Bare host URLs use the default RDP port in endpoint messages."""
 

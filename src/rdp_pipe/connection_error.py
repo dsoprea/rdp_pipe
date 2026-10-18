@@ -75,6 +75,9 @@ def describe_connection_failure(error: BaseException) -> str:
     if _SERVER_ERROR_PREFIX in error_message:
         return error_message
 
+    if error_message != "":
+        return error_message
+
     return "connection failed"
 
 
