@@ -46,6 +46,26 @@ async def test_connect_reports_ready_progress(connected_session):
     assert connected_session.event_loop is not None
 
 
+async def test_connect_prints_server_capability_report_to_stderr(
+        monkeypatch,
+        mock_rdp_connection,
+        capsys):
+    """connect() writes the server capability summary to stderr when the session is ready."""
+
+    _patch_factory_from_url(monkeypatch, mock_rdp_connection)
+
+    session = rdp_pipe.rdp_session_core.RdpAsyncSession(
+        CONNECTION_URL,
+        1280,
+        800)
+
+    await session.connect()
+
+    captured = capsys.readouterr()
+
+    assert "Server capabilities:" in captured.err
+
+
 async def test_connect_without_caps_marks_display_unavailable(monkeypatch):
     """When the mock skips caps, seamless resize is disabled."""
 

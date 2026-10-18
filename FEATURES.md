@@ -74,6 +74,7 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 - Automatic reconnect: when the server drops or restarts, the client shows a reconnecting overlay, prints a managed stderr line (`error: RDP session to host:port disconnected; reconnecting...`), and retries until the session is back or the operator closes the window / presses Ctrl+C
 - When the server sends `SET_ERROR_INFO` for shutdown or reboot (`SERVER_SHUTDOWN`, `SERVER_REBOOT`), the GUI shows a dialog (**Keep Trying** vs **Exit**) before resuming the reconnect loop; headless mode keeps silent auto-reconnect. Drops without that PDU still reconnect without a dialog
 - Clipboard sync (text only): local Qt clipboard changes are forwarded to the remote session; remote copy updates the local clipboard (Unicode text via RDPECLIP)
+- After a successful connect, prints a **Server capabilities** summary on stderr (GCC server data, Demand Active capability sets, and RDPDISP caps when advertised)
 
 ## Seamless resize (MS-RDPEDISP)
 

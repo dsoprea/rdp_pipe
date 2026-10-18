@@ -68,6 +68,8 @@ _ORIGINAL_TS_UD_CS_CORE_TO_BYTES = \
     aardwolf.protocol.T124.userdata.clientcoredata.TS_UD_CS_CORE.to_bytes
 _ORIGINAL_POINTER_CAPABILITYSET_INIT = \
     aardwolf.protocol.pdu.capabilities.pointer.TS_POINTER_CAPABILITYSET.__init__
+_ORIGINAL_DEMAND_ACTIVE_FROM_BYTES = \
+    aardwolf.protocol.T128.serverdemandactivepdu.TS_DEMAND_ACTIVE_PDU.from_bytes
 
 
 async def _patched_uni_connection_read(self):
@@ -123,6 +125,21 @@ def _patched_pointer_capabilityset_init(self):
 
 aardwolf.protocol.pdu.capabilities.pointer.TS_POINTER_CAPABILITYSET.__init__ = \
     _patched_pointer_capabilityset_init
+
+
+def _patched_demand_active_from_bytes(bbuff):
+    """Retain the server Demand Active PDU for post-connect capability reporting."""
+
+    demand_active_pdu = _ORIGINAL_DEMAND_ACTIVE_FROM_BYTES(bbuff)
+
+    if _CONNECTING_DESKTOP_CONNECTION is not None:
+        _CONNECTING_DESKTOP_CONNECTION._server_demand_active_pdu = demand_active_pdu
+
+    return demand_active_pdu
+
+
+aardwolf.protocol.T128.serverdemandactivepdu.TS_DEMAND_ACTIVE_PDU.from_bytes = \
+    staticmethod(_patched_demand_active_from_bytes)
 
 _ORIGINAL_HANDLE_OUT_DATA = aardwolf.connection.RDPConnection.handle_out_data
 
@@ -450,6 +467,7 @@ class RdpDesktopConnection(aardwolf.connection.RDPConnection):
         self._share_channel_task = None
         self._terminate_in_progress = False
         self.pending_remote_session_end_reason = None
+        self._server_demand_active_pdu = None
 
     def set_pointer_update_listener(self, listener):
         """Register a callback invoked immediately for each pointer PDU."""

@@ -13,6 +13,7 @@ import rdp_pipe.connection_progress
 import rdp_pipe.pointer_update
 import rdp_pipe.rdp_connection
 import rdp_pipe.rdp_input
+import rdp_pipe.server_capabilities
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -193,6 +194,9 @@ class RdpAsyncSession:
 
         self._report_connection_progress(
             rdp_pipe.connection_progress.CONNECTION_STEP_READY)
+
+        rdp_pipe.server_capabilities.write_server_capability_report_to_stderr(
+            self._connection)
 
         self._connected_event.set()
 
