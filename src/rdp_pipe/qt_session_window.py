@@ -38,6 +38,8 @@ DEFAULT_WINDOW_WIDTH = 1280
 DEFAULT_WINDOW_HEIGHT = 800
 SESSION_TITLE_BAR_HEIGHT = 36
 SESSION_TITLE_BAR_BACKGROUND = "#2b2b2b"
+SESSION_TITLE_BAR_CONTROL_ICON_PIXELS = 16
+SESSION_TITLE_BAR_WINDOW_CONTROL_BUTTON_PIXELS = 28
 FRAMELESS_RESIZE_MARGIN_PIXELS = 12
 FRAMELESS_MINIMUM_WINDOW_WIDTH = 320
 FRAMELESS_MINIMUM_WINDOW_HEIGHT = 240
@@ -47,6 +49,50 @@ RESIZE_DEBOUNCE_MILLISECONDS = 250
 MOUSE_POINTER_DEBUG_INTERVAL_SECONDS = 0.5
 DEFAULT_SUPPRESS_SECONDS_AFTER_BITMAP = 0.1
 COMMON_MODIFIER_RDP_SCANCODE_LIST = (42, 54, 29, 56)
+
+
+def build_session_title_bar_control_icon(control_kind: str) -> PyQt6.QtGui.QIcon:
+    """Return a title-bar window-control icon from the desktop theme or Qt style."""
+
+    if control_kind == "minimize":
+        theme_icon_name = "window-minimize"
+        standard_pixmap = PyQt6.QtWidgets.QStyle.StandardPixmap.SP_TitleBarMinButton
+    elif control_kind == "maximize":
+        theme_icon_name = "window-maximize"
+        standard_pixmap = PyQt6.QtWidgets.QStyle.StandardPixmap.SP_TitleBarMaxButton
+    elif control_kind == "restore":
+        theme_icon_name = "window-restore"
+        standard_pixmap = PyQt6.QtWidgets.QStyle.StandardPixmap.SP_TitleBarNormalButton
+    elif control_kind == "close":
+        theme_icon_name = "window-close"
+        standard_pixmap = PyQt6.QtWidgets.QStyle.StandardPixmap.SP_TitleBarCloseButton
+    else:
+        raise ValueError(
+            "unsupported session title bar control_kind={control_kind}".format(
+                control_kind=control_kind))
+
+    theme_icon = PyQt6.QtGui.QIcon.fromTheme(theme_icon_name)
+
+    if theme_icon.isNull() is False:
+        return theme_icon
+
+    application_style = PyQt6.QtWidgets.QApplication.style()
+
+    return application_style.standardIcon(standard_pixmap)
+
+
+def configure_session_title_bar_window_control_button(
+        window_control_button: PyQt6.QtWidgets.QToolButton) -> None:
+    """Apply shared sizing and chrome for min/max/close title-bar tool buttons."""
+
+    control_button_pixels = SESSION_TITLE_BAR_WINDOW_CONTROL_BUTTON_PIXELS
+    icon_pixels = SESSION_TITLE_BAR_CONTROL_ICON_PIXELS
+    window_control_button.setFixedSize(control_button_pixels, control_button_pixels)
+    window_control_button.setIconSize(
+        PyQt6.QtCore.QSize(icon_pixels, icon_pixels))
+    window_control_button.setAutoRaise(True)
+    window_control_button.setToolButtonStyle(
+        PyQt6.QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
 
 
 def resolve_frameless_resize_edge(
@@ -1588,21 +1634,18 @@ class RdpSessionTitleBar(PyQt6.QtWidgets.QWidget):
         self._super_button = PyQt6.QtWidgets.QPushButton("SUPER", self)
         self._super_button.clicked.connect(self.super_key_clicked.emit)
 
-        application_style = PyQt6.QtWidgets.QApplication.style()
-
         self._minimize_button = PyQt6.QtWidgets.QToolButton(self)
-        self._minimize_button.setIcon(
-            application_style.standardIcon(
-                PyQt6.QtWidgets.QStyle.StandardPixmap.SP_TitleBarMinButton))
+        configure_session_title_bar_window_control_button(self._minimize_button)
+        self._minimize_button.setIcon(build_session_title_bar_control_icon("minimize"))
         self._minimize_button.clicked.connect(session_window.showMinimized)
 
         self._maximize_button = PyQt6.QtWidgets.QToolButton(self)
+        configure_session_title_bar_window_control_button(self._maximize_button)
         self._maximize_button.clicked.connect(self._handle_maximize_button_clicked)
 
         self._close_button = PyQt6.QtWidgets.QToolButton(self)
-        self._close_button.setIcon(
-            application_style.standardIcon(
-                PyQt6.QtWidgets.QStyle.StandardPixmap.SP_TitleBarCloseButton))
+        configure_session_title_bar_window_control_button(self._close_button)
+        self._close_button.setIcon(build_session_title_bar_control_icon("close"))
         self._close_button.clicked.connect(session_window.close)
 
         title_bar_layout = PyQt6.QtWidgets.QHBoxLayout(self)
@@ -1621,14 +1664,13 @@ class RdpSessionTitleBar(PyQt6.QtWidgets.QWidget):
     def sync_maximize_button_icon(self):
         """Refresh the maximize button icon for the current window state."""
 
-        application_style = PyQt6.QtWidgets.QApplication.style()
-
         if self._session_window.isMaximized():
-            standard_pixmap = PyQt6.QtWidgets.QStyle.StandardPixmap.SP_TitleBarNormalButton
+            control_kind = "restore"
         else:
-            standard_pixmap = PyQt6.QtWidgets.QStyle.StandardPixmap.SP_TitleBarMaxButton
+            control_kind = "maximize"
 
-        self._maximize_button.setIcon(application_style.standardIcon(standard_pixmap))
+        self._maximize_button.setIcon(
+            build_session_title_bar_control_icon(control_kind))
 
     def _handle_maximize_button_clicked(self):
         """Toggle maximized state for the session window."""

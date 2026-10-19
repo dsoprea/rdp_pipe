@@ -75,6 +75,32 @@ def test_build_server_capability_report_includes_gcc_demand_active_and_rdpdisp()
     assert "max_num_monitors: 16" in report_text
 
 
+def test_build_server_capability_report_accepts_aardwolf_serverdata_dict():
+    """Aardwolf stores __server_connect_pdu as TS_SC.serverdata, not the TS_SC wrapper."""
+
+    server_core = aardwolf.protocol.T124.userdata.servercoredata.TS_UD_SC_CORE()
+    server_core.version = 0x00080004
+    serverdata = {
+        aardwolf.protocol.T124.userdata.constants.TS_UD_TYPE.SC_CORE: server_core,
+    }
+
+    connection = type(
+        "StubConnection",
+        (),
+        {
+            "_RDPConnection__server_connect_pdu": serverdata,
+            "_server_demand_active_pdu": None,
+            "display_control_channel": None,
+        })()
+
+    report_lines = rdp_pipe.server_capabilities.build_server_capability_report_lines(
+        connection)
+    report_text = "\n".join(report_lines)
+
+    assert "SC_CORE" in report_text
+    assert "version: 524292" in report_text or "0x00080004" in report_text
+
+
 def test_demand_active_from_bytes_patch_stores_pdu_on_connecting_desktop_connection(
         monkeypatch):
     """Demand Active parsing during connect retains the server PDU on the connection."""

@@ -21,10 +21,8 @@ def qt_application():
     return qt_application_instance
 
 
-def test_linux_session_window_uses_frameless_title_bar_in_central_layout(
-        qt_application,
-        monkeypatch):
-    """Linux stacks the custom title bar above the session canvas inside the client area."""
+def _build_linux_frameless_session_window_with_title_bar(monkeypatch):
+    """Return a frameless RdpSessionWindow with title bar wired like production Linux."""
 
     monkeypatch.setattr(sys, "platform", "linux")
 
@@ -36,6 +34,16 @@ def test_linux_session_window_uses_frameless_title_bar_in_central_layout(
     session_window._session_container = rdp_pipe.qt_session_window.RdpSessionContainer()
     session_window.setWindowTitle("RDP - test")
     session_window._configure_session_window_title_bar_chrome()
+
+    return session_window
+
+
+def test_linux_session_window_uses_frameless_title_bar_in_central_layout(
+        qt_application,
+        monkeypatch):
+    """Linux stacks the custom title bar above the session canvas inside the client area."""
+
+    session_window = _build_linux_frameless_session_window_with_title_bar(monkeypatch)
     session_window.setCentralWidget(session_window._build_session_central_widget())
 
     assert session_window._session_title_bar is not None
@@ -50,6 +58,36 @@ def test_linux_session_window_uses_frameless_title_bar_in_central_layout(
         & PyQt6.QtCore.Qt.WindowType.FramelessWindowHint)
     assert len(session_window._frameless_resize_grip_entries) == len(
         rdp_pipe.qt_session_window.FRAMELESS_RESIZE_GRIP_EDGES)
+
+
+def test_session_title_bar_maximize_button_has_icon_after_construction(
+        qt_application,
+        monkeypatch):
+    """Maximize control must ship a non-null icon (theme or Qt style fallback)."""
+
+    session_window = _build_linux_frameless_session_window_with_title_bar(monkeypatch)
+    session_title_bar = session_window._session_title_bar
+    maximize_icon = session_title_bar._maximize_button.icon()
+
+    assert maximize_icon.isNull() is False
+
+
+def test_session_title_bar_maximize_icon_changes_when_window_maximized(
+        qt_application,
+        monkeypatch):
+    """Maximize vs restore icons must differ when the session window is maximized."""
+
+    session_window = _build_linux_frameless_session_window_with_title_bar(monkeypatch)
+    session_title_bar = session_window._session_title_bar
+    session_window.show()
+    qt_application.processEvents()
+    maximize_cache_key = session_title_bar._maximize_button.icon().cacheKey()
+    session_window.showMaximized()
+    qt_application.processEvents()
+    session_title_bar.sync_maximize_button_icon()
+    restored_cache_key = session_title_bar._maximize_button.icon().cacheKey()
+
+    assert restored_cache_key != maximize_cache_key
 
 
 def test_compute_frameless_resize_grip_geometry_for_bottom_edge(qt_application):

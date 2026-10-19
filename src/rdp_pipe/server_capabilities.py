@@ -24,6 +24,41 @@ def _format_capability_field_value(field_value):
     return repr(field_value)
 
 
+def _resolve_connect_gcc_serverdata(server_connect_pdu):
+    """Return the GCC server userdata map from aardwolf's stored connect PDU."""
+
+    if server_connect_pdu is None:
+        return None
+
+    if isinstance(server_connect_pdu, dict):
+        return server_connect_pdu
+
+    try:
+        serverdata = server_connect_pdu.serverdata
+    except AttributeError:
+        return None
+
+    return serverdata
+
+
+def _format_userdata_type_sort_key(userdata_type_key):
+    """Sort GCC userdata block keys whether they are enums or plain strings."""
+
+    try:
+        return userdata_type_key.value
+    except AttributeError:
+        return str(userdata_type_key)
+
+
+def _format_userdata_type_name(userdata_type):
+    """Return a label for one GCC userdata block key."""
+
+    try:
+        return userdata_type.name
+    except AttributeError:
+        return str(userdata_type)
+
+
 def _format_userdata_block_lines(userdata_block):
     """Return indented lines describing one GCC server userdata block."""
 
@@ -48,12 +83,12 @@ def _format_connect_gcc_server_data_lines(server_connect_pdu):
 
     lines = ["Connect GCC server data:"]
 
-    if server_connect_pdu is None:
+    serverdata = _resolve_connect_gcc_serverdata(server_connect_pdu)
+
+    if serverdata is None:
         lines.append("  (unavailable)")
 
         return lines
-
-    serverdata = server_connect_pdu.serverdata
 
     if len(serverdata) == 0:
         lines.append("  (empty)")
@@ -62,10 +97,11 @@ def _format_connect_gcc_server_data_lines(server_connect_pdu):
 
     for userdata_type in sorted(
             serverdata.keys(),
-            key=lambda userdata_type_key: userdata_type_key.value):
+            key=_format_userdata_type_sort_key):
 
         userdata_block = serverdata[userdata_type]
-        lines.append("  {block_name}:".format(block_name=userdata_type.name))
+        block_name = _format_userdata_type_name(userdata_type)
+        lines.append("  {block_name}:".format(block_name=block_name))
         block_lines = _format_userdata_block_lines(userdata_block)
         lines.extend(block_lines)
 
