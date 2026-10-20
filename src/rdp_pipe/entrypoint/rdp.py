@@ -103,7 +103,7 @@ def run_gui_session(
     PyQt6.QtGui.QGuiApplication.setApplicationDisplayName(
         rdp_entrypoint_config.QT_APPLICATION_DISPLAY_NAME)
     PyQt6.QtGui.QGuiApplication.setDesktopFileName(
-        rdp_entrypoint_config.QT_WAYLAND_APP_ID)
+        rdp_entrypoint_config.DESKTOP_ENTRY_BASENAME)
 
     qt_application = PyQt6.QtWidgets.QApplication(sys.argv)
     session_window = rdp_pipe.qt_session_window.RdpSessionWindow(

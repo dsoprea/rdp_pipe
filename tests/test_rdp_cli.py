@@ -235,7 +235,7 @@ def test_gui_run_sets_qt_application_identity_before_qapplication():
     mock_set_display_name.assert_called_once_with(
         rdp_pipe.config.entrypoint.rdp.QT_APPLICATION_DISPLAY_NAME)
     mock_set_desktop_file_name.assert_called_once_with(
-        rdp_pipe.config.entrypoint.rdp.QT_WAYLAND_APP_ID)
+        rdp_pipe.config.entrypoint.rdp.DESKTOP_ENTRY_BASENAME)
 
 
 def test_gui_terminal_sigint_closes_window_and_quits_application():

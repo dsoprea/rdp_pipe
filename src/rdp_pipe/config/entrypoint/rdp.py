@@ -3,5 +3,6 @@
 PROG_NAME = "rdp"
 QT_APPLICATION_NAME = "RDP Pipe"
 QT_APPLICATION_DISPLAY_NAME = "RDP Pipe"
-# Wayland xdg-shell app_id (setDesktopFileName); KDE Plasma Alt+Tab shows this string.
-QT_WAYLAND_APP_ID = "RDP Pipe"
+# Wayland app_id and xdg-desktop-portal registration; must match installed
+# <DESKTOP_ENTRY_BASENAME>.desktop (Name= may be RDP Pipe).
+DESKTOP_ENTRY_BASENAME = "rdp_pipe"

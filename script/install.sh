@@ -26,3 +26,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
 python -m pip install -e .
+
+DESKTOP_INSTALL_SCRIPT="${ROOT}/script/support/install_rdp_pipe_desktop_entry.sh"
+if [[ -x "${DESKTOP_INSTALL_SCRIPT}" ]]; then
+  "${DESKTOP_INSTALL_SCRIPT}"
+fi

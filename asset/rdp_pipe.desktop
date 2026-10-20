@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=RDP Pipe
+GenericName=Remote Desktop
+Comment=PyQt6 RDP client (rdp_pipe)
+Exec=rdp
+Icon=preferences-desktop-remote-desktop
+Terminal=false
+Categories=Network;RemoteAccess;
+StartupWMClass=RDP Pipe

@@ -24,6 +24,8 @@ This project does not use a repo **`.venv`**. Console scripts (`rdp`, `rdpr`) la
 
 If imports fail after moving the repo, remove any leftover **`.venv`** directory (it may still point at an old checkout path) and run **`pip install -e .`** again. The installable Python package is **`rdp_pipe`**, not `rdp`.
 
+On KDE / Wayland, Qt registers Wayland app id **`rdp_pipe`**, which must match an installed [`asset/rdp_pipe.desktop`](asset/rdp_pipe.desktop) entry (**`./script/install.sh`** runs the desktop install helper automatically). The portal and task switcher use that id; the human label **RDP Pipe** comes from the desktop file `Name=` field. Do not use spaces in the app id — that breaks xdg-desktop-portal registration.
+
 ## Connect
 
 ```bash

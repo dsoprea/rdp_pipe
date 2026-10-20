@@ -2,6 +2,46 @@
 
 Postmortems for unintuitive defects caused by wire formats, library behavior, or platform defaults — so we do not re-learn them.
 
+## xdg-desktop-portal: App info not found for RDP Pipe
+
+### Symptom
+
+On startup, stderr shows:
+
+```text
+qt.qpa.services: Failed to register with host portal QDBusError("org.freedesktop.portal.Error.Failed", "Could not register app ID: App info not found for 'RDP Pipe'")
+```
+
+### Root cause
+
+`QGuiApplication::setDesktopFileName` is the Freedesktop **desktop-entry basename** (no `.desktop` suffix), not the human window label. xdg-desktop-portal resolves `"{id}.desktop"` with `GDesktopAppInfo`. Setting the id to **`RDP Pipe`** (spaces) looks for a non-existent desktop file and registration fails. The id must match an installed file such as **`rdp_pipe.desktop`**.
+
+### Fix
+
+Use `setDesktopFileName("rdp_pipe")` (`DESKTOP_ENTRY_BASENAME` in config) and install [`asset/rdp_pipe.desktop`](asset/rdp_pipe.desktop) to `~/.local/share/applications/` via [`script/install.sh`](script/install.sh) or [`script/support/install_rdp_pipe_desktop_entry.sh`](script/support/install_rdp_pipe_desktop_entry.sh). Restart the GUI session after upgrading.
+
+### Prevention
+
+Keep `DESKTOP_ENTRY_BASENAME` aligned with the desktop filename; verify `WAYLAND_DEBUG=1` shows `set_app_id("rdp_pipe")` and portal registration is quiet.
+
+## KDE Alt+Tab shows rdp_pipe instead of RDP Pipe
+
+### Symptom
+
+The session window title is `RDP - host`, but Alt+Tab on KDE Wayland labels the window **rdp_pipe**, **python3**, or another generic name instead of **RDP Pipe**.
+
+### Root cause
+
+On Wayland, Qt sends `xdg_toplevel.set_app_id` from `setDesktopFileName`. KDE Plasma’s switcher often displays that **app_id string** when it cannot map the id to a desktop entry `Name=` field (local entries may not appear in `ksycoca`). Using app_id **`RDP Pipe`** breaks xdg-desktop-portal registration (see above).
+
+### Fix
+
+Use app_id **`rdp_pipe`** plus an installed desktop entry with `Name=RDP Pipe`. If Alt+Tab still shows **rdp_pipe**, run `kbuildsycoca6 --noincremental` after installing the desktop file and start a new session.
+
+### Prevention
+
+Do not set `setDesktopFileName` to a spaced display string to “fix” Alt+Tab; that trades portal errors for a label hack.
+
 ## x224 reader TypeError on None from asysocks read
 
 ### Symptom
