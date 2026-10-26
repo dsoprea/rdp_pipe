@@ -166,4 +166,4 @@ def test_build_session_window_title_appends_optional_title():
         "rdp+ntlm-password://10.0.0.5",
         "Lab VM")
 
-    assert window_title == "RDP - 10.0.0.5 — Lab VM"
+    assert window_title == "RDP - 10.0.0.5 - Lab VM"

@@ -189,7 +189,7 @@ def build_session_window_title(
     window_title = "RDP - {hostname}".format(hostname=hostname)
 
     if session_title is not None and session_title != "":
-        window_title = "{window_title} — {session_title}".format(
+        window_title = "{window_title} - {session_title}".format(
             window_title=window_title,
             session_title=session_title)
 

@@ -57,7 +57,7 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 
 ## Desktop session (PyQt6)
 
-- Window title `RDP - <host>` where `<host>` is the connection hostname from the CLI URL argument; optional `--title <label>` appends ` — <label>` after the hostname in the title bar (GUI mode only)
+- Window title `RDP - <host>` where `<host>` is the connection hostname from the CLI URL argument; optional `--title <label>` appends ` - <label>` after the hostname in the title bar (GUI mode only)
 - Desktop task switcher and xdg-desktop-portal use Freedesktop id **`rdp_pipe`** (`setDesktopFileName`); install **`rdp_pipe.desktop`** via `./script/install.sh` or `./script/support/install_rdp_pipe_desktop_entry.sh` so portal registration succeeds and KDE can show **RDP Pipe** from the entry `Name` field
 - Title bar **CTRL+ALT+DEL** (secure attention on the remote host) and **SUPER** (Windows key press and release) buttons in the window chrome (frameless client-side title bar on Linux and Windows, unified toolbar in the title bar on macOS); works even when the pointer is outside the canvas or `--viewer` is set
 - Connecting overlay: dimmed full-window modal centered on the session window listing connect steps (prepare, TCP/TLS, certificate trust, authentication, display configuration) until the session is ready
