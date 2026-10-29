@@ -72,6 +72,22 @@ def test_session_title_bar_maximize_button_has_icon_after_construction(
     assert maximize_icon.isNull() is False
 
 
+def test_session_title_bar_controls_exclude_keyboard_focus(qt_application, monkeypatch):
+    """Title-bar chrome must not participate in Qt Tab focus navigation."""
+
+    session_window = _build_linux_frameless_session_window_with_title_bar(monkeypatch)
+    session_title_bar = session_window._session_title_bar
+    no_focus_policy = PyQt6.QtCore.Qt.FocusPolicy.NoFocus
+
+    assert session_title_bar.focusPolicy() == no_focus_policy
+    assert session_title_bar._title_label.focusPolicy() == no_focus_policy
+    assert session_title_bar._ctrl_alt_del_button.focusPolicy() == no_focus_policy
+    assert session_title_bar._super_button.focusPolicy() == no_focus_policy
+    assert session_title_bar._minimize_button.focusPolicy() == no_focus_policy
+    assert session_title_bar._maximize_button.focusPolicy() == no_focus_policy
+    assert session_title_bar._close_button.focusPolicy() == no_focus_policy
+
+
 def test_session_title_bar_maximize_icon_changes_when_window_maximized(
         qt_application,
         monkeypatch):

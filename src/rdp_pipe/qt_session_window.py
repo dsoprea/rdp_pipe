@@ -93,6 +93,21 @@ def configure_session_title_bar_window_control_button(
     window_control_button.setAutoRaise(True)
     window_control_button.setToolButtonStyle(
         PyQt6.QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
+    configure_session_title_bar_widget_no_keyboard_focus(window_control_button)
+
+
+def configure_session_title_bar_widget_no_keyboard_focus(
+        title_bar_widget: PyQt6.QtWidgets.QWidget) -> None:
+    """Keep title-bar chrome out of the Tab focus chain; use the mouse for controls."""
+
+    title_bar_widget.setFocusPolicy(PyQt6.QtCore.Qt.FocusPolicy.NoFocus)
+
+
+def qt_key_is_tab_navigation(qt_key: PyQt6.QtCore.Qt.Key) -> bool:
+    """Return True when the Qt key is Tab or Shift+Tab focus navigation."""
+
+    return qt_key == PyQt6.QtCore.Qt.Key.Key_Tab \
+        or qt_key == PyQt6.QtCore.Qt.Key.Key_Backtab
 
 
 def resolve_frameless_resize_edge(
@@ -789,6 +804,8 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
             PyQt6.QtCore.Qt.Key.Key_Pause: "VK_PAUSE",
             PyQt6.QtCore.Qt.Key.Key_Slash: "VK_DIVIDE",
             PyQt6.QtCore.Qt.Key.Key_Period: "VK_DECIMAL",
+            PyQt6.QtCore.Qt.Key.Key_Tab: "VK_TAB",
+            PyQt6.QtCore.Qt.Key.Key_Backtab: "VK_TAB",
         }
 
         self._mouse_button_map = {
@@ -799,6 +816,11 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
             PyQt6.QtCore.Qt.MouseButton.MiddleButton:
                 aardwolf.commons.queuedata.constants.MOUSEBUTTON.MOUSEBUTTON_MIDDLE,
         }
+
+    def focusNextPrevChild(self, next_child: bool) -> bool:
+        """Do not move Qt focus off the canvas when the remote session should get Tab."""
+
+        return False
 
     def set_input_queue(self, input_queue: queue.Queue):
         """Attach the queue used to forward mouse and keyboard events."""
@@ -1142,6 +1164,31 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         if focus_canvas:
             self.setFocus(PyQt6.QtCore.Qt.FocusReason.MouseFocusReason)
 
+    def _cursor_global_position_is_over_canvas(self) -> bool:
+        """Return True when the system cursor lies within this canvas widget."""
+
+        cursor_widget_position = self.mapFromGlobal(PyQt6.QtGui.QCursor.pos())
+
+        return self.rect().contains(cursor_widget_position)
+
+    def _should_bypass_pointer_inside_gate_for_key_press(
+            self,
+            key_event: PyQt6.QtGui.QKeyEvent) -> bool:
+        """Allow Tab to reach the remote when the session has keyboard focus or the cursor is over the canvas."""
+
+        if qt_key_is_tab_navigation(key_event.key()) is False:
+            return False
+
+        if self.hasFocus():
+            return True
+
+        if self._cursor_global_position_is_over_canvas():
+            self._pointer_inside_canvas = True
+
+            return True
+
+        return False
+
     def refocus_keyboard_input_if_pointer_over_canvas(self):
         """Reclaim keyboard focus when the session window activates with pointer over canvas."""
 
@@ -1168,10 +1215,12 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
         """Put one keyboard scancode message on the input queue."""
 
         keyboard_message = aardwolf.commons.queuedata.keyboard.RDP_KEYBOARD_SCANCODE()
-        keyboard_message.keyCode = scancode
         keyboard_message.is_pressed = is_pressed
         keyboard_message.modifiers = modifiers
         keyboard_message.vk_code = vk_code
+
+        if scancode is not None:
+            keyboard_message.keyCode = scancode
 
         self._input_queue.put(keyboard_message)
 
@@ -1200,23 +1249,27 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
                 modifiers,
                 None)
 
-    def _enqueue_keyboard_event(self, key_event: PyQt6.QtGui.QKeyEvent, is_pressed: bool):
+    def _enqueue_keyboard_event(
+            self,
+            key_event: PyQt6.QtGui.QKeyEvent,
+            is_pressed: bool) -> bool:
         """Forward scancode keyboard events; gate presses on pointer-inside only."""
 
         if self._viewer_mode:
             rdp_pipe.keyboard_debug.write_keyboard_debug("keyboard drop: viewer_mode")
 
-            return
+            return False
 
         if self._pointer_inside_canvas is False and is_pressed:
-            rdp_pipe.keyboard_debug.write_keyboard_debug("keyboard drop: pointer_outside")
+            if self._should_bypass_pointer_inside_gate_for_key_press(key_event) is False:
+                rdp_pipe.keyboard_debug.write_keyboard_debug("keyboard drop: pointer_outside")
 
-            return
+                return False
 
         if self._input_queue is None:
             rdp_pipe.keyboard_debug.write_keyboard_debug("keyboard drop: no_input_queue")
 
-            return
+            return False
 
         modifiers = aardwolf.keyboard.VK_MODIFIERS(0)
         qt_modifiers = PyQt6.QtWidgets.QApplication.keyboardModifiers()
@@ -1233,21 +1286,29 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
                 and key_event.key() != PyQt6.QtCore.Qt.Key.Key_Alt:
             modifiers = modifiers | aardwolf.keyboard.VK_MODIFIERS.VK_MENU
 
+        qt_key = key_event.key()
+        vk_code = None
+
+        if qt_key_is_tab_navigation(qt_key):
+            vk_code = "VK_TAB"
+        elif qt_key in self._extended_key_map.keys():
+            vk_code = self._extended_key_map[qt_key]
+
         scancode = key_event.nativeScanCode()
 
         if sys.platform == "linux":
             scancode = scancode - 8
 
-        vk_code = None
-
-        if key_event.key() in self._extended_key_map.keys():
-            vk_code = self._extended_key_map[key_event.key()]
+        if qt_key_is_tab_navigation(qt_key):
+            scancode = None
 
         self._enqueue_keyboard_scancode(
             scancode,
             is_pressed,
             modifiers,
             vk_code)
+
+        return True
 
     def _restore_visible_local_cursor_for_window_chrome(self):
         """Restore a visible arrow on ancestors the WM title bar may inherit."""
@@ -1583,7 +1644,13 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
                 key=key_event.key(),
                 native_scancode=key_event.nativeScanCode()))
 
-        self._enqueue_keyboard_event(key_event, True)
+        forwarded_to_remote = self._enqueue_keyboard_event(key_event, True)
+
+        if forwarded_to_remote:
+            key_event.accept()
+
+            return
+
         super().keyPressEvent(key_event)
 
     def keyReleaseEvent(self, key_event: PyQt6.QtGui.QKeyEvent):
@@ -1594,7 +1661,13 @@ class RdpCanvas(PyQt6.QtWidgets.QWidget):
                 key=key_event.key(),
                 native_scancode=key_event.nativeScanCode()))
 
-        self._enqueue_keyboard_event(key_event, False)
+        forwarded_to_remote = self._enqueue_keyboard_event(key_event, False)
+
+        if forwarded_to_remote:
+            key_event.accept()
+
+            return
+
         super().keyReleaseEvent(key_event)
 
     def resizeEvent(self, resize_event: PyQt6.QtGui.QResizeEvent):
@@ -1618,6 +1691,8 @@ class RdpSessionTitleBar(PyQt6.QtWidgets.QWidget):
 
         self._session_window = session_window
 
+        configure_session_title_bar_widget_no_keyboard_focus(self)
+
         self.setFixedHeight(SESSION_TITLE_BAR_HEIGHT)
         self.setAttribute(PyQt6.QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(
@@ -1627,12 +1702,15 @@ class RdpSessionTitleBar(PyQt6.QtWidgets.QWidget):
         self._title_label = PyQt6.QtWidgets.QLabel(session_window.windowTitle(), self)
         self._title_label.setStyleSheet(
             "background-color: transparent; padding-left: 8px;")
+        configure_session_title_bar_widget_no_keyboard_focus(self._title_label)
 
         self._ctrl_alt_del_button = PyQt6.QtWidgets.QPushButton("CTRL+ALT+DEL", self)
         self._ctrl_alt_del_button.clicked.connect(self.ctrl_alt_del_clicked.emit)
+        configure_session_title_bar_widget_no_keyboard_focus(self._ctrl_alt_del_button)
 
         self._super_button = PyQt6.QtWidgets.QPushButton("SUPER", self)
         self._super_button.clicked.connect(self.super_key_clicked.emit)
+        configure_session_title_bar_widget_no_keyboard_focus(self._super_button)
 
         self._minimize_button = PyQt6.QtWidgets.QToolButton(self)
         configure_session_title_bar_window_control_button(self._minimize_button)
@@ -2001,10 +2079,12 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
 
         ctrl_alt_del_button = PyQt6.QtWidgets.QPushButton("CTRL+ALT+DEL", button_parent)
         ctrl_alt_del_button.clicked.connect(self._handle_ctrl_alt_del_title_bar_clicked)
+        configure_session_title_bar_widget_no_keyboard_focus(ctrl_alt_del_button)
         button_parent.addWidget(ctrl_alt_del_button)
 
         super_button = PyQt6.QtWidgets.QPushButton("SUPER", button_parent)
         super_button.clicked.connect(self._handle_super_key_title_bar_clicked)
+        configure_session_title_bar_widget_no_keyboard_focus(super_button)
         button_parent.addWidget(super_button)
 
     def _handle_ctrl_alt_del_title_bar_clicked(self):
@@ -2075,6 +2155,7 @@ class RdpSessionWindow(PyQt6.QtWidgets.QMainWindow):
         self._session_rdp_ready = True
 
         self._canvas.send_session_ready_pointer_hover()
+        self._canvas.refocus_keyboard_input_if_pointer_over_canvas()
         self._push_current_local_clipboard_text()
 
         if self._command_socket_path is None:

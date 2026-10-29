@@ -1,6 +1,7 @@
 """Unit tests for Qt session canvas keyboard forwarding and focus recovery."""
 
 import queue
+import sys
 import unittest.mock
 
 import PyQt6.QtCore
@@ -88,6 +89,25 @@ def _build_key_press_event() -> PyQt6.QtGui.QKeyEvent:
         PyQt6.QtCore.Qt.Key.Key_A,
         PyQt6.QtCore.Qt.KeyboardModifier.NoModifier,
         "a")
+
+
+def _build_tab_key_press_event() -> PyQt6.QtGui.QKeyEvent:
+    """Build a Tab key press event for direct handler invocation."""
+
+    return PyQt6.QtGui.QKeyEvent(
+        PyQt6.QtCore.QEvent.Type.KeyPress,
+        PyQt6.QtCore.Qt.Key.Key_Tab,
+        PyQt6.QtCore.Qt.KeyboardModifier.NoModifier)
+
+
+def _build_period_key_press_event() -> PyQt6.QtGui.QKeyEvent:
+    """Build a period key press event for direct handler invocation."""
+
+    return PyQt6.QtGui.QKeyEvent(
+        PyQt6.QtCore.QEvent.Type.KeyPress,
+        PyQt6.QtCore.Qt.Key.Key_Period,
+        PyQt6.QtCore.Qt.KeyboardModifier.NoModifier,
+        ".")
 
 
 def _build_key_release_event() -> PyQt6.QtGui.QKeyEvent:
@@ -223,6 +243,89 @@ def test_keyboard_debug_does_not_crash_on_key_press(qt_application, monkeypatch)
     messages = _drain_keyboard_messages(input_queue)
 
     assert len(messages) == 1
+
+
+def test_tab_key_press_forwarded_to_remote_with_vk_tab(qt_application):
+    """Tab reaches the server with VK_TAB and is not left for Qt focus navigation."""
+
+    input_queue = queue.Queue()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
+    canvas.set_input_queue(input_queue)
+    _configure_canvas_for_keyboard_tests(canvas)
+
+    tab_press_event = _build_tab_key_press_event()
+
+    with unittest.mock.patch.object(
+            PyQt6.QtWidgets.QWidget,
+            "keyPressEvent") as base_key_press_mock:
+
+        canvas.keyPressEvent(tab_press_event)
+
+    base_key_press_mock.assert_not_called()
+    assert tab_press_event.isAccepted()
+
+    messages = _drain_keyboard_messages(input_queue)
+
+    assert len(messages) == 1
+    assert messages[0].is_pressed is True
+    assert messages[0].vk_code == "VK_TAB"
+    assert messages[0].keyCode is None
+
+
+def test_period_key_press_includes_scancode_for_vk_decimal(qt_application, monkeypatch):
+    """Period uses VK_DECIMAL plus a native scancode hint because aardwolf has no VK_DECIMAL map entry."""
+
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    input_queue = queue.Queue()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
+    canvas.set_input_queue(input_queue)
+    _configure_canvas_for_keyboard_tests(canvas)
+
+    period_press_event = _build_period_key_press_event()
+
+    with unittest.mock.patch.object(
+            period_press_event,
+            "nativeScanCode",
+            return_value=59):
+
+        canvas.keyPressEvent(period_press_event)
+
+    messages = _drain_keyboard_messages(input_queue)
+
+    assert len(messages) == 1
+    assert messages[0].vk_code == "VK_DECIMAL"
+    assert messages[0].keyCode == 51
+
+
+def test_canvas_focus_next_prev_child_is_disabled(qt_application):
+    """Tab must not move Qt focus off the canvas through focusNextPrevChild."""
+
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
+
+    assert canvas.focusNextPrevChild(True) is False
+    assert canvas.focusNextPrevChild(False) is False
+
+
+def test_tab_key_press_forwarded_when_canvas_has_focus_without_pointer_inside_flag(
+        qt_application):
+    """Tab must reach the remote when the canvas has focus even if leaveEvent cleared the pointer flag."""
+
+    input_queue = queue.Queue()
+    canvas = rdp_pipe.qt_session_window.RdpCanvas()
+    canvas.set_input_queue(input_queue)
+    _configure_canvas_for_keyboard_tests(canvas)
+    canvas._pointer_inside_canvas = False
+    canvas.setFocus(PyQt6.QtCore.Qt.FocusReason.OtherFocusReason)
+    PyQt6.QtWidgets.QApplication.processEvents()
+
+    canvas.keyPressEvent(_build_tab_key_press_event())
+
+    messages = _drain_keyboard_messages(input_queue)
+
+    assert len(messages) == 1
+    assert messages[0].is_pressed is True
+    assert messages[0].vk_code == "VK_TAB"
 
 
 def test_send_ctrl_alt_del_bypasses_pointer_gating(qt_application):

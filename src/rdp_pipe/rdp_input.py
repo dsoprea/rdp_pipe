@@ -72,22 +72,26 @@ def build_mouse_click_messages(x_position: int, y_position: int, button_name: st
     return [press_message, release_message]
 
 
+def build_virtual_key_message(vk_code: str, is_pressed: bool):
+    """Return one vk-based keyboard message without a Qt/native scancode hint."""
+
+    keyboard_message = aardwolf.commons.queuedata.keyboard.RDP_KEYBOARD_SCANCODE()
+    keyboard_message.vk_code = vk_code
+    keyboard_message.is_pressed = is_pressed
+
+    return keyboard_message
+
+
 def _append_virtual_key_press(messages: list, vk_code: str) -> None:
     """Append one virtual-key press message to the outgoing keyboard list."""
 
-    press_message = aardwolf.commons.queuedata.keyboard.RDP_KEYBOARD_SCANCODE()
-    press_message.vk_code = vk_code
-    press_message.is_pressed = True
-    messages.append(press_message)
+    messages.append(build_virtual_key_message(vk_code, True))
 
 
 def _append_virtual_key_release(messages: list, vk_code: str) -> None:
     """Append one virtual-key release message to the outgoing keyboard list."""
 
-    release_message = aardwolf.commons.queuedata.keyboard.RDP_KEYBOARD_SCANCODE()
-    release_message.vk_code = vk_code
-    release_message.is_pressed = False
-    messages.append(release_message)
+    messages.append(build_virtual_key_message(vk_code, False))
 
 
 def build_named_key_messages(key_name: str) -> list:

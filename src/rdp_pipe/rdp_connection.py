@@ -14,6 +14,7 @@ import aardwolf.commons.queuedata.video
 import aardwolf.commons.target
 import aardwolf.connection
 import aardwolf.extensions.RDPECLIP.channel
+import aardwolf.keyboard
 import aardwolf.extensions.RDPEDYC.channel
 import aardwolf.extensions.RDPEDYC.protocol
 import aardwolf.extensions.RDPEDYC.protocol.create
@@ -346,6 +347,38 @@ def _patched_check_logon_status(self, data):
 
 
 aardwolf.connection.RDPConnection.check_logon_status = _patched_check_logon_status
+
+_ORIGINAL_SEND_KEY_VIRTUALKEY = aardwolf.connection.RDPConnection.send_key_virtualkey
+
+
+async def _patched_send_key_virtualkey(
+        self,
+        vk,
+        is_pressed,
+        is_extended,
+        scancode_hint=None,
+        modifiers=aardwolf.keyboard.VK_MODIFIERS(0)):
+    """Send Tab without KBDFLAGS.EXTENDED; stock aardwolf marks all __vk_to_sc keys extended."""
+
+    if vk == "VK_TAB":
+        tab_scancode = self._RDPConnection__vk_to_sc["VK_TAB"]
+
+        return await self.send_key_scancode(
+            tab_scancode,
+            is_pressed,
+            False,
+            modifiers=modifiers)
+
+    return await _ORIGINAL_SEND_KEY_VIRTUALKEY(
+        self,
+        vk,
+        is_pressed,
+        is_extended,
+        scancode_hint=scancode_hint,
+        modifiers=modifiers)
+
+
+aardwolf.connection.RDPConnection.send_key_virtualkey = _patched_send_key_virtualkey
 
 _ORIGINAL_RDPECLIP_HANDLE_FORMAT_DATA_REQUEST = \
     aardwolf.extensions.RDPECLIP.channel.RDPECLIPChannel._handle_format_data_request

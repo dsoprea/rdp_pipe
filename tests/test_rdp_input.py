@@ -5,6 +5,18 @@ import aardwolf.commons.queuedata.keyboard
 import rdp_pipe.rdp_input
 
 
+def test_build_named_key_messages_tab_uses_vk_only():
+    """Named Tab keys must not carry a native scancode hint that can map to the wrong character."""
+
+    messages = rdp_pipe.rdp_input.build_named_key_messages("Tab")
+
+    assert len(messages) == 2
+    assert messages[0].vk_code == "VK_TAB"
+    assert messages[0].keyCode is None
+    assert messages[1].vk_code == "VK_TAB"
+    assert messages[1].keyCode is None
+
+
 def test_build_ctrl_alt_del_messages_sequence():
     """Ctrl+Alt+Del chord presses modifiers then Delete and releases in reverse."""
 

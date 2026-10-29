@@ -2,6 +2,31 @@
 
 Postmortems for unintuitive defects caused by wire formats, library behavior, or platform defaults — so we do not re-learn them.
 
+## Tab in session types ampersand on the remote
+
+### Symptom
+
+Pressing Tab in the RDP canvas moves focus on the remote to the wrong control, or inserts **`&`** instead of a tab.
+
+### Root cause
+
+Two stacked issues:
+
+| Layer | Mechanism |
+|-------|-----------|
+| **Qt → scancode** | The GUI forwarded `nativeScanCode() - 8` together with `vk_code`. On Linux, a bad or mismatched native scancode (often **8**, the “7” key) is still attached as `scancode_hint` even when `VK_TAB` is set. The server then sees **Shift+7** → **`&`** if Shift is down. |
+| **aardwolf** | `send_key_virtualkey` sends every `__vk_to_sc` mapping with **`KBDFLAGS.EXTENDED`**, including Tab (`0x0F`), which is not an extended key on the wire. |
+
+### Fix
+
+1. **GUI** — For Tab/Backtab only, enqueue **`vk_code` only** (`keyCode` left unset), same as `rdpr send_key Tab`. Other mapped keys (for example period → `VK_DECIMAL`) still include the Linux scancode hint because aardwolf has no `VK_DECIMAL` entry in `__vk_to_sc`.
+2. **Monkey-patch** — `_patched_send_key_virtualkey` in [`rdp_connection.py`](src/rdp_pipe/rdp_connection.py) sends `VK_TAB` via scancode `0x0F` with **`is_extended=False`**.
+
+### Prevention
+
+- Unit tests assert Tab messages have `keyCode is None` and `vk_code == "VK_TAB"`.
+- README monkey-patch table documents `_patched_send_key_virtualkey`.
+
 ## xdg-desktop-portal: App info not found for RDP Pipe
 
 ### Symptom
