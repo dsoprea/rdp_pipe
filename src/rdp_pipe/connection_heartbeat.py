@@ -1,80 +1,60 @@
-"""RDP Heartbeat PDU on the MCS message channel for connection health probes."""
+"""TCP keepalive on the RDP transport for dead-link detection without RDP Heartbeat PDUs."""
 
-import aardwolf.protocol.T128.security
+import logging
+import socket
 
-CONNECTION_HEARTBEAT_INTERVAL_SECONDS = 15
-CONNECTION_HEARTBEAT_MISSED_BEFORE_WARNING = 1
-CONNECTION_HEARTBEAT_MISSED_BEFORE_RECONNECT = 2
+_LOGGER = logging.getLogger(__name__)
 
-
-class TsHeartbeatPdu:
-    """MS-RDPBCGR TS_HEARTBEAT_PDU body (reserved, period, count1, count2)."""
-
-    def __init__(
-            self,
-            period_seconds: int,
-            missed_heartbeats_before_warning: int,
-            missed_heartbeats_before_reconnect: int):
-
-        """Store heartbeat timing fields for the wire payload."""
-
-        self.period_seconds = period_seconds
-        self.missed_heartbeats_before_warning = missed_heartbeats_before_warning
-        self.missed_heartbeats_before_reconnect = missed_heartbeats_before_reconnect
-
-    def to_bytes(self) -> bytes:
-        """Return the four-byte Heartbeat PDU payload."""
-
-        return bytes([
-            0,
-            self.period_seconds & 0xFF,
-            self.missed_heartbeats_before_warning & 0xFF,
-            self.missed_heartbeats_before_reconnect & 0xFF,
-        ])
+CONNECTION_KEEPALIVE_IDLE_SECONDS = 15
+CONNECTION_KEEPALIVE_INTERVAL_SECONDS = 15
+CONNECTION_KEEPALIVE_PROBE_COUNT = 3
 
 
-def build_ts_heartbeat_pdu(
-        period_seconds: int = CONNECTION_HEARTBEAT_INTERVAL_SECONDS,
-        missed_heartbeats_before_warning: int = CONNECTION_HEARTBEAT_MISSED_BEFORE_WARNING,
-        missed_heartbeats_before_reconnect: int = CONNECTION_HEARTBEAT_MISSED_BEFORE_RECONNECT) -> TsHeartbeatPdu:
-    """Build a Heartbeat PDU with the configured interval and miss thresholds."""
+def enable_tcp_keepalive_on_connection(connection) -> bool:
+    """Turn on SO_KEEPALIVE with a 15-second idle probe interval when supported."""
 
-    return TsHeartbeatPdu(
-        period_seconds,
-        missed_heartbeats_before_warning,
-        missed_heartbeats_before_reconnect)
+    transport_connection = getattr(connection, "_RDPConnection__connection", None)
+
+    if transport_connection is None:
+        return False
+
+    socket_object = transport_connection.get_extra_info("socket")
+
+    if socket_object is None:
+        return False
+
+    socket_object.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+    if hasattr(socket, "TCP_KEEPIDLE"):
+        socket_object.setsockopt(
+            socket.IPPROTO_TCP,
+            socket.TCP_KEEPIDLE,
+            CONNECTION_KEEPALIVE_IDLE_SECONDS)
+
+    if hasattr(socket, "TCP_KEEPINTVL"):
+        socket_object.setsockopt(
+            socket.IPPROTO_TCP,
+            socket.TCP_KEEPINTVL,
+            CONNECTION_KEEPALIVE_INTERVAL_SECONDS)
+
+    if hasattr(socket, "TCP_KEEPCNT"):
+        socket_object.setsockopt(
+            socket.IPPROTO_TCP,
+            socket.TCP_KEEPCNT,
+            CONNECTION_KEEPALIVE_PROBE_COUNT)
+
+    return True
 
 
-async def send_connection_heartbeat(connection) -> tuple[bool, Exception | None]:
-    """Send one Heartbeat PDU on the MCS message channel when the session is up."""
-
-    joined_channels = getattr(connection, "_RDPConnection__joined_channels", None)
-
-    if joined_channels is None:
-        return False, None
+def try_enable_tcp_keepalive_on_connection(connection) -> bool:
+    """Enable TCP keepalive and log a warning when the socket cannot be configured."""
 
     try:
-        message_channel = joined_channels["MCS"]
+        return enable_tcp_keepalive_on_connection(connection)
 
-    except KeyError:
-        return False, None
+    except OSError as error:
+        _LOGGER.warning(
+            "TCP keepalive not enabled on RDP socket: {error}".format(
+                error=error))
 
-    heartbeat_pdu = build_ts_heartbeat_pdu()
-    security_header = aardwolf.protocol.T128.security.TS_SECURITY_HEADER()
-    security_header.flags = \
-        aardwolf.protocol.T128.security.SEC_HDR_FLAG.HEARTBEAT
-
-    cryptolayer = getattr(connection, "cryptolayer", None)
-
-    if cryptolayer is not None:
-        security_header.flags |= aardwolf.protocol.T128.security.SEC_HDR_FLAG.ENCRYPT
-
-    send_ok, send_error = await connection.handle_out_data(
-        heartbeat_pdu,
-        security_header,
-        None,
-        None,
-        message_channel.channel_id,
-        False)
-
-    return send_ok, send_error
+        return False

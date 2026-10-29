@@ -2,6 +2,25 @@
 
 Postmortems for unintuitive defects caused by wire formats, library behavior, or platform defaults — so we do not re-learn them.
 
+## Client Heartbeat PDU breaks Windows RDS sessions
+
+### Symptom
+
+After connect, the desktop flashes briefly then the client enters the reconnect loop. stderr may show `Server refused clipboard initialization!` and `Connection lost` on `handle_out_data` within the same second.
+
+### Root cause
+
+MS-RDPBCGR Heartbeat PDUs on the MCS message channel are defined for **server → client** health monitoring. Sending them **from the client** (with `SEC_HEARTBEAT`, including immediately after connect) caused some Windows RDS hosts to reset the TCP session. Concurrent channel traffic (for example RDPECLIP init failure) then surfaced as fatal errors in aardwolf’s x224 reader.
+
+### Fix
+
+Do **not** send client Heartbeat PDUs or advertise `SUPPORT_HEARTBEAT_PDU` for this use case. Enable **TCP `SO_KEEPALIVE`** on the RDP socket after connect instead (`connection_heartbeat.py`: 15-second idle probe interval on Linux when `TCP_KEEPIDLE` / `TCP_KEEPINTVL` exist).
+
+### Prevention
+
+- Do not reintroduce periodic MCS Heartbeat sends without verifying against target servers.
+- `tests/test_connection_heartbeat.py` covers TCP keepalive only.
+
 ## Tab in session types ampersand on the remote
 
 ### Symptom

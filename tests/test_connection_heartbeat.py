@@ -1,70 +1,59 @@
-"""Unit tests for RDP connection heartbeat probes."""
+"""Unit tests for TCP keepalive on the RDP transport."""
 
-import asyncio
+import socket
 import unittest.mock
-
-import aardwolf.protocol.T128.security
 
 import rdp_pipe.connection_heartbeat
 
 
-def test_build_ts_heartbeat_pdu_default_period():
-    """Default heartbeat advertises a 15-second period on the wire."""
+def test_enable_tcp_keepalive_sets_linux_probe_options():
+    """Keepalive uses 15-second idle and interval when TCP_* options exist."""
 
-    heartbeat_pdu = rdp_pipe.connection_heartbeat.build_ts_heartbeat_pdu()
-
-    assert heartbeat_pdu.to_bytes() == bytes([0, 15, 1, 2])
-
-
-async def _run_send_connection_heartbeat_with_mock_channel():
-    """Exercise send_connection_heartbeat with a fake MCS channel."""
-
-    message_channel = unittest.mock.Mock()
-    message_channel.channel_id = 1003
+    socket_object = unittest.mock.Mock()
+    transport_connection = unittest.mock.Mock()
+    transport_connection.get_extra_info = unittest.mock.Mock(return_value=socket_object)
     connection = unittest.mock.Mock()
-    connection._RDPConnection__joined_channels = {"MCS": message_channel}
-    connection.cryptolayer = object()
-    connection.handle_out_data = unittest.mock.AsyncMock(return_value=(True, None))
+    connection._RDPConnection__connection = transport_connection
 
-    send_ok, send_error = await rdp_pipe.connection_heartbeat.send_connection_heartbeat(
-        connection)
+    enabled = rdp_pipe.connection_heartbeat.enable_tcp_keepalive_on_connection(connection)
 
-    return send_ok, send_error, connection.handle_out_data
+    assert enabled is True
+    socket_object.setsockopt.assert_any_call(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
+    if hasattr(socket, "TCP_KEEPIDLE"):
+        socket_object.setsockopt.assert_any_call(
+            socket.IPPROTO_TCP,
+            socket.TCP_KEEPIDLE,
+            rdp_pipe.connection_heartbeat.CONNECTION_KEEPALIVE_IDLE_SECONDS)
 
-def test_send_connection_heartbeat_uses_mcs_message_channel():
-    """Heartbeat is sent on the MCS channel with HEARTBEAT and ENCRYPT flags."""
-
-    send_ok, send_error, handle_out_data = asyncio.run(
-        _run_send_connection_heartbeat_with_mock_channel())
-
-    assert send_ok is True
-    assert send_error is None
-    handle_out_data.assert_awaited_once()
-    call_arguments = handle_out_data.await_args
-    heartbeat_pdu = call_arguments.args[0]
-    security_header = call_arguments.args[1]
-    channel_identifier = call_arguments.args[4]
-
-    assert heartbeat_pdu.to_bytes() == bytes([0, 15, 1, 2])
-    assert security_header.flags & aardwolf.protocol.T128.security.SEC_HDR_FLAG.HEARTBEAT
-    assert security_header.flags & aardwolf.protocol.T128.security.SEC_HDR_FLAG.ENCRYPT
-    assert channel_identifier == 1003
+    if hasattr(socket, "TCP_KEEPINTVL"):
+        socket_object.setsockopt.assert_any_call(
+            socket.IPPROTO_TCP,
+            socket.TCP_KEEPINTVL,
+            rdp_pipe.connection_heartbeat.CONNECTION_KEEPALIVE_INTERVAL_SECONDS)
 
 
-async def _run_send_connection_heartbeat_without_mcs():
-    """Return early when MCS is not joined yet."""
+def test_enable_tcp_keepalive_returns_false_without_transport():
+    """Mid-connect shells without a transport must not raise."""
 
     connection = unittest.mock.Mock()
-    connection._RDPConnection__joined_channels = {}
+    connection._RDPConnection__connection = None
 
-    return await rdp_pipe.connection_heartbeat.send_connection_heartbeat(connection)
+    enabled = rdp_pipe.connection_heartbeat.enable_tcp_keepalive_on_connection(connection)
+
+    assert enabled is False
 
 
-def test_send_connection_heartbeat_skips_when_mcs_missing():
-    """Mid-connect sessions must not attempt heartbeat sends."""
+def test_try_enable_tcp_keepalive_logs_oserror():
+    """OSError from setsockopt is swallowed after a warning."""
 
-    send_ok, send_error = asyncio.run(_run_send_connection_heartbeat_without_mcs())
+    socket_object = unittest.mock.Mock()
+    socket_object.setsockopt.side_effect = OSError("Operation not supported")
+    transport_connection = unittest.mock.Mock()
+    transport_connection.get_extra_info = unittest.mock.Mock(return_value=socket_object)
+    connection = unittest.mock.Mock()
+    connection._RDPConnection__connection = transport_connection
 
-    assert send_ok is False
-    assert send_error is None
+    enabled = rdp_pipe.connection_heartbeat.try_enable_tcp_keepalive_on_connection(connection)
+
+    assert enabled is False

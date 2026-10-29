@@ -180,6 +180,9 @@ class RdpAsyncSession:
         if connect_ok is None:
             raise RdpSessionError("RDP connection failed without an error detail")
 
+        rdp_pipe.connection_heartbeat.try_enable_tcp_keepalive_on_connection(
+            self._connection)
+
         self._report_connection_progress(
             rdp_pipe.connection_progress.CONNECTION_STEP_CONFIGURING_DISPLAY)
 
@@ -248,92 +251,57 @@ class RdpAsyncSession:
         for video_item in pending_video_items:
             await self._connection.ext_out_queue.put(video_item)
 
-    async def _run_connection_heartbeat_until_stopped(self):
-        """Send RDP Heartbeat PDUs on a fixed interval while the session is active."""
-
-        heartbeat_interval_seconds = \
-            rdp_pipe.connection_heartbeat.CONNECTION_HEARTBEAT_INTERVAL_SECONDS
-
-        while self._stop_event.is_set() is False:
-
-            connection = self._connection
-
-            if connection is None:
-                return
-
-            disconnected_event = getattr(connection, "disconnected_evt", None)
-
-            if disconnected_event is not None and disconnected_event.is_set():
-                return
-
-            await rdp_pipe.connection_heartbeat.send_connection_heartbeat(connection)
-
-            await asyncio.sleep(heartbeat_interval_seconds)
-
     async def run_until_stopped(self):
         """Drain ext_out_queue until stop() or disconnect."""
 
-        heartbeat_task = asyncio.create_task(self._run_connection_heartbeat_until_stopped())
+        while not self._stop_event.is_set():
 
-        try:
+            queue_get_task = asyncio.create_task(self._connection.ext_out_queue.get())
+            stop_wait_task = asyncio.create_task(self._stop_event.wait())
+            done_tasks, pending_tasks = await asyncio.wait(
+                [queue_get_task, stop_wait_task],
+                return_when=asyncio.FIRST_COMPLETED)
 
-            while not self._stop_event.is_set():
+            for pending_task in pending_tasks:
+                pending_task.cancel()
 
-                queue_get_task = asyncio.create_task(self._connection.ext_out_queue.get())
-                stop_wait_task = asyncio.create_task(self._stop_event.wait())
-                done_tasks, pending_tasks = await asyncio.wait(
-                    [queue_get_task, stop_wait_task],
-                    return_when=asyncio.FIRST_COMPLETED)
+                try:
+                    await pending_task
 
-                for pending_task in pending_tasks:
-                    pending_task.cancel()
+                except asyncio.CancelledError:
+                    pass
 
-                    try:
-                        await pending_task
+            if self._stop_event.is_set():
+                return
 
-                    except asyncio.CancelledError:
-                        pass
+            output_item = queue_get_task.result()
+
+            if output_item is None:
+                return
+
+            if isinstance(output_item, rdp_pipe.pointer_update.RdpPointerUpdate):
+                self._dispatch_pointer_update(output_item)
+
+            elif output_item.type == aardwolf.commons.queuedata.RDPDATATYPE.VIDEO:
+                if self._activity_stamp_filepath is not None:
+                    rdp_pipe.activity_stamp.touch_activity_stamp_file(
+                        self._activity_stamp_filepath)
+
+                video_frame = RdpVideoFrame(
+                    output_item.x,
+                    output_item.y,
+                    output_item.data,
+                    output_item.width,
+                    output_item.height)
+
+                for callback in self._video_frame_callbacks:
+                    callback(video_frame)
 
                 if self._stop_event.is_set():
                     return
 
-                output_item = queue_get_task.result()
-
-                if output_item is None:
-                    return
-
-                if isinstance(output_item, rdp_pipe.pointer_update.RdpPointerUpdate):
-                    self._dispatch_pointer_update(output_item)
-
-                elif output_item.type == aardwolf.commons.queuedata.RDPDATATYPE.VIDEO:
-                    if self._activity_stamp_filepath is not None:
-                        rdp_pipe.activity_stamp.touch_activity_stamp_file(
-                            self._activity_stamp_filepath)
-
-                    video_frame = RdpVideoFrame(
-                        output_item.x,
-                        output_item.y,
-                        output_item.data,
-                        output_item.width,
-                        output_item.height)
-
-                    for callback in self._video_frame_callbacks:
-                        callback(video_frame)
-
-                    if self._stop_event.is_set():
-                        return
-
-                elif output_item.type == aardwolf.commons.queuedata.RDPDATATYPE.CLIPBOARD_DATA_TXT:
-                    self._dispatch_clipboard_text(output_item.data)
-
-        finally:
-            heartbeat_task.cancel()
-
-            try:
-                await heartbeat_task
-
-            except asyncio.CancelledError:
-                pass
+            elif output_item.type == aardwolf.commons.queuedata.RDPDATATYPE.CLIPBOARD_DATA_TXT:
+                self._dispatch_clipboard_text(output_item.data)
 
     async def push_local_clipboard_text(self, clipboard_text: str):
         """Advertise local clipboard text to the remote session via RDPECLIP."""

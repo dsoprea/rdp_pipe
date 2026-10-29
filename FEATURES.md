@@ -71,7 +71,7 @@ Wire protocol reference: [REMOTE_COMMAND_PROTOCOL.md](REMOTE_COMMAND_PROTOCOL.md
 - Partial framebuffer updates from aardwolf `RDP_VIDEO` rectangles
 - Remote desktop wallpaper when the server provides it (client does not request `DISABLE_WALLPAPER` at connect)
 - Closing the window sends an RDP disconnect and waits for the session to end before the process exits
-- While a session is connected, sends an MS-RDP Heartbeat PDU on the MCS message channel every 15 seconds so dead links surface as write failures and trigger reconnect
+- While a session is connected, enables TCP keepalive on the RDP socket (15-second idle probe interval on Linux when supported) so dead links are detected without sending client Heartbeat PDUs on the MCS channel
 - Automatic reconnect: when the server drops or restarts, the client shows a reconnecting overlay, prints a managed stderr line (`error: RDP session to host:port disconnected; reconnecting...`), and retries until the session is back or the operator closes the window / presses Ctrl+C
 - When the server sends `SET_ERROR_INFO` for shutdown or reboot (`SERVER_SHUTDOWN`, `SERVER_REBOOT`), the GUI shows a dialog (**Keep Trying** vs **Exit**) before resuming the reconnect loop; headless mode keeps silent auto-reconnect. Drops without that PDU still reconnect without a dialog
 - Clipboard sync (text only): local Qt clipboard changes are forwarded to the remote session; remote copy updates the local clipboard (Unicode text via RDPECLIP)
