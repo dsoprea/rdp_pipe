@@ -99,7 +99,8 @@ def _patched_ts_ud_cs_core_to_bytes(self):
         if self.earlyCapabilityFlags is not None:
             self.earlyCapabilityFlags = (
                 self.earlyCapabilityFlags
-                | aardwolf.protocol.T124.userdata.constants.RNS_UD_CS.SUPPORT_MONITOR_LAYOUT_PDU)
+                | aardwolf.protocol.T124.userdata.constants.RNS_UD_CS.SUPPORT_MONITOR_LAYOUT_PDU
+                | aardwolf.protocol.T124.userdata.constants.RNS_UD_CS.SUPPORT_HEARTBEAT_PDU)
 
             if _CONNECTING_DESKTOP_CONNECTION.iosettings.video_bpp_max == 32:
                 self.earlyCapabilityFlags = (
